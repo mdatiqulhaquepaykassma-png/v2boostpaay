@@ -2,6 +2,7 @@ import { FC, useState } from 'react';
 import { ArrowUpRight, ArrowDownLeft, Zap, ShieldAlert, X, Clock, Copy, Check, ChevronDown } from 'lucide-react';
 import { Transaction } from '../types';
 import { copyToClipboard } from '../services/store';
+import { formatPrecisionAmount } from '../utils/format';
 
 interface Props {
   transactions: Transaction[];
@@ -114,7 +115,7 @@ export const RecentTransactionsSection: FC<Props> = ({ transactions, userId }) =
 
               <div className="text-right">
                 <div className={`text-xs font-bold font-mono ${detail.amountColor}`}>
-                  {detail.amountSign}${tx.amount.toFixed(4)}
+                  {detail.amountSign}${formatPrecisionAmount(tx.amount, 8)}
                 </div>
                 <div className="text-[10px] text-zinc-500 font-mono">USD</div>
               </div>
@@ -155,7 +156,7 @@ export const RecentTransactionsSection: FC<Props> = ({ transactions, userId }) =
             <div className="text-center pb-3 border-b border-zinc-800 mb-3">
               <span className="text-[11px] font-mono text-zinc-400 uppercase">Transaction Details</span>
               <div className="text-2xl font-black font-mono text-white mt-1">
-                ${selectedTx.amount.toFixed(4)} <span className="text-xs font-sans text-zinc-400">USD</span>
+                ${formatPrecisionAmount(selectedTx.amount, 8)} <span className="text-xs font-sans text-zinc-400">USD</span>
               </div>
             </div>
 

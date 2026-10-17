@@ -148,6 +148,17 @@ function calculateDynamicDuration(userBalance: number, users: any[], config: any
   return Math.round(minMs + ratio * (maxMs - minMs));
 }
 
+function formatAmount8(val: number | string | undefined | null): string {
+  const num = Number(val);
+  if (isNaN(num)) return '0.00';
+  const fixed = num.toFixed(8);
+  const [intP, decP] = fixed.split('.');
+  if (!decP) return `${intP}.00`;
+  let trimmed = decP.replace(/0+$/, '');
+  if (trimmed.length < 2) trimmed = decP.slice(0, 2);
+  return `${intP}.${trimmed}`;
+}
+
 // Background server-side boosting ticker (runs continuously every 1 second 24/7)
 // Even if the user is offline, closes the app, or logs out, this ticker runs and credits rewards!
 setInterval(() => {
@@ -170,7 +181,12 @@ setInterval(() => {
         if (elapsed >= target) {
           // Cycle completed on server!
           const startingBal = Number(user.boostState.startingBalance ?? user.balance);
-          const finalYield = startingBal * (Math.pow(1 + ratePerMs, target) - 1);
+          // High-precision numerically stable compounding yield calculation (avoids floating point loss for 0.000001 rates)
+          const finalYield = ratePerMs > 0
+            ? (target * ratePerMs < 1e-5
+                ? startingBal * target * ratePerMs
+                : startingBal * Math.expm1(target * Math.log1p(ratePerMs)))
+            : 0;
           
           user.balance = (Number(user.balance) || 0) + finalYield;
           user.lifetimeProfit = (Number(user.lifetimeProfit) || 0) + finalYield;
@@ -185,13 +201,13 @@ setInterval(() => {
           };
           db.transactions.unshift(rewardTx);
 
-          // Also generate SMS-style inbox notification
+          // Also generate SMS-style inbox notification with micro precision
           const yieldNotif = {
             id: 'NOTIF-' + Math.floor(10000000 + Math.random() * 90000000),
             userId: user.id,
             type: 'YIELD_REWARD',
             title: 'BOOSTPAY-ALERTS',
-            message: `YIELD ALERT: Compounding cycle completed. $${finalYield.toFixed(2)} in yield profit credited to your wallet. Available Balance: $${user.balance.toFixed(2)}. Ref: ${rewardTx.id}`,
+            message: `YIELD ALERT: Compounding cycle completed. $${formatAmount8(finalYield)} in yield profit credited to your wallet. Available Balance: $${formatAmount8(user.balance)}. Ref: ${rewardTx.id}`,
             amount: finalYield,
             referenceId: rewardTx.id,
             timestamp: now,
@@ -809,7 +825,7 @@ async function startServer() {
           userId: user.id,
           type: 'SYSTEM_ALERT',
           title: 'BOOSTPAY-TREASURY',
-          message: `TREASURY CREDIT: $${numAmount.toFixed(2)} deposited into your account by Admin Treasury. Balance: $${user.balance.toFixed(2)}. Ref: ${adminTxId}`,
+          message: `TREASURY CREDIT: $${formatAmount8(numAmount)} deposited into your account by Admin Treasury. Balance: $${formatAmount8(user.balance)}. Ref: ${adminTxId}`,
           amount: numAmount,
           referenceId: adminTxId,
           timestamp: Date.now(),
@@ -835,7 +851,7 @@ async function startServer() {
           userId: user.id,
           type: 'SYSTEM_ALERT',
           title: 'BOOSTPAY-TREASURY',
-          message: `TREASURY DEBIT: $${numAmount.toFixed(2)} debited from your account by Admin Treasury. Balance: $${user.balance.toFixed(2)}. Ref: ${adminTxId}`,
+          message: `TREASURY DEBIT: $${formatAmount8(numAmount)} debited from your account by Admin Treasury. Balance: $${formatAmount8(user.balance)}. Ref: ${adminTxId}`,
           amount: numAmount,
           referenceId: adminTxId,
           timestamp: Date.now(),

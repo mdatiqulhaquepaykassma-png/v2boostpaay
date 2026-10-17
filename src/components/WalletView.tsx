@@ -3,6 +3,7 @@ import { Zap, Pause, Play, Send, TrendingUp, AlertCircle, Sparkles, RefreshCw } 
 import { BoostPayStore } from '../services/store';
 import { User, SystemConfig } from '../types';
 import { RecentTransactionsSection } from './RecentTransactionsSection';
+import { formatPrecisionAmount, formatStrict8Decimals, formatRatePercent } from '../utils/format';
 
 interface Props {
   user: User;
@@ -79,7 +80,11 @@ export const WalletView: FC<Props> = ({
           return target;
         }
         const startingBal = Number(user.boostState.startingBalance ?? user.balance);
-        const accrued = startingBal * (Math.pow(1 + ratePerMs, next) - 1);
+        const accrued = ratePerMs > 0
+          ? (next * ratePerMs < 1e-5
+              ? startingBal * next * ratePerMs
+              : startingBal * Math.expm1(next * Math.log1p(ratePerMs)))
+          : 0;
         setLiveYield(accrued);
         return next;
       });
@@ -136,8 +141,8 @@ export const WalletView: FC<Props> = ({
   const isBoostPaused = user.boostState.isActive && user.boostState.isPaused;
   const progressPercent = Math.min(100, Math.max(0, (elapsedMs / (dynamicTargetDurationMs || 1)) * 100));
 
-  // High precision decimal formatting for main balance
-  const balanceStr = (user.balance || 0).toFixed(6);
+  // High precision 8-decimal formatting for main balance
+  const balanceStr = formatStrict8Decimals(user.balance);
   const [intPart, decPart] = balanceStr.split('.');
 
   // Profit calculations
@@ -162,7 +167,7 @@ export const WalletView: FC<Props> = ({
             <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
             <div className="text-xs text-zinc-200">
               <span className="font-bold text-emerald-400 block">Boosting Completed!</span>
-              +${completionBanner.amount.toFixed(6)} USD added to main balance.
+              +${formatPrecisionAmount(completionBanner.amount, 8)} USD added to main balance.
             </div>
           </div>
           <button
@@ -232,7 +237,7 @@ export const WalletView: FC<Props> = ({
             <div>
               <h3 className="font-bold text-sm text-white">Dynamic Compounding</h3>
               <p className="text-[11px] text-zinc-400">
-                Rate: <span className="font-mono text-amber-400">{config.hourlyRatePercent}%/hr</span> · Duration: <span className="font-mono text-zinc-300">{formatDuration(dynamicTargetDurationMs)}</span>
+                Rate: <span className="font-mono text-amber-400">{formatRatePercent(config.hourlyRatePercent)}%/hr</span> · Duration: <span className="font-mono text-zinc-300">{formatDuration(dynamicTargetDurationMs)}</span>
               </p>
             </div>
           </div>
@@ -257,7 +262,7 @@ export const WalletView: FC<Props> = ({
 
           <div className="flex items-baseline font-mono text-amber-400">
             <span className="text-lg font-bold mr-0.5">+$</span>
-            <span className="text-2xl font-black tracking-tight">{liveYield.toFixed(6)}</span>
+            <span className="text-2xl font-black tracking-tight">{formatStrict8Decimals(liveYield)}</span>
             <span className="text-xs text-zinc-500 ml-1">USD</span>
           </div>
 
@@ -313,15 +318,15 @@ export const WalletView: FC<Props> = ({
         <div className="grid grid-cols-3 gap-2 text-center font-mono">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-2.5">
             <span className="text-[10px] text-zinc-500 block mb-0.5">Today</span>
-            <span className="text-xs font-bold text-emerald-400">+${todayProfit.toFixed(4)}</span>
+            <span className="text-xs font-bold text-emerald-400">+${formatPrecisionAmount(todayProfit, 8)}</span>
           </div>
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-2.5">
             <span className="text-[10px] text-zinc-500 block mb-0.5">7 Days</span>
-            <span className="text-xs font-bold text-emerald-400">+${sevenDayProfit.toFixed(4)}</span>
+            <span className="text-xs font-bold text-emerald-400">+${formatPrecisionAmount(sevenDayProfit, 8)}</span>
           </div>
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-2.5">
             <span className="text-[10px] text-zinc-500 block mb-0.5">Lifetime</span>
-            <span className="text-xs font-bold text-amber-400">+${user.lifetimeProfit.toFixed(4)}</span>
+            <span className="text-xs font-bold text-amber-400">+${formatPrecisionAmount(user.lifetimeProfit, 8)}</span>
           </div>
         </div>
       </div>

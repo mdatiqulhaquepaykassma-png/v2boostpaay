@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { BoostPayStore, copyToClipboard } from '../services/store';
 import { InboxNotification, NotificationType } from '../types';
+import { formatPrecisionAmount } from '../utils/format';
 
 interface Props {
   userId: string;
@@ -299,7 +300,7 @@ export const InboxView: FC<Props> = ({ userId }) => {
                         }`}
                       >
                         {isCredit || isYield ? '+' : isDebit ? '-' : ''}$
-                        {Number(notif.amount).toFixed(2)}
+                        {formatPrecisionAmount(notif.amount, 8)}
                       </span>
                     )}
 

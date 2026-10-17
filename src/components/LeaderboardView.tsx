@@ -2,6 +2,7 @@ import { FC, useState, useEffect } from 'react';
 import { Trophy, MessageSquare, ShieldAlert, TrendingUp, Copy, Check, Sparkles, Award } from 'lucide-react';
 import { BoostPayStore, copyToClipboard } from '../services/store';
 import { User } from '../types';
+import { formatPrecisionAmount } from '../utils/format';
 
 interface Props {
   currentUser?: User;
@@ -106,11 +107,11 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
           <div className="flex items-center gap-6 self-start sm:self-center font-mono">
             <div>
               <span className="text-[10px] text-zinc-500 block">Balance</span>
-              <span className="text-sm font-bold text-white">${myUser.balance.toFixed(4)}</span>
+              <span className="text-sm font-bold text-white">${formatPrecisionAmount(myUser.balance, 8)}</span>
             </div>
             <div>
               <span className="text-[10px] text-zinc-500 block">Lifetime Profit</span>
-              <span className="text-sm font-bold text-emerald-400">+${myUser.lifetimeProfit.toFixed(4)}</span>
+              <span className="text-sm font-bold text-emerald-400">+${formatPrecisionAmount(myUser.lifetimeProfit, 8)}</span>
             </div>
           </div>
         </div>
@@ -176,7 +177,7 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
                       </button>
                     </div>
                     <span className="text-[10px] text-zinc-500 font-mono sm:hidden">
-                      Profit: +${u.lifetimeProfit.toFixed(2)}
+                      Profit: +${formatPrecisionAmount(u.lifetimeProfit, 8)}
                     </span>
                   </div>
                 </div>
@@ -186,7 +187,7 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
                   {/* Lifetime Profit (desktop) */}
                   <div className="hidden sm:block text-right">
                     <span className="text-xs font-semibold text-emerald-400">
-                      +${u.lifetimeProfit.toFixed(4)}
+                      +${formatPrecisionAmount(u.lifetimeProfit, 8)}
                     </span>
                     <span className="text-[10px] text-zinc-500 block">Yield</span>
                   </div>
@@ -194,7 +195,7 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
                   {/* Main Balance */}
                   <div className="text-right">
                     <span className="text-xs sm:text-sm font-bold text-white">
-                      ${u.balance.toFixed(4)}
+                      ${formatPrecisionAmount(u.balance, 8)}
                     </span>
                     <span className="text-[10px] text-zinc-500 block font-sans">USD</span>
                   </div>

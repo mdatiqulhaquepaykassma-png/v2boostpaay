@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { BoostPayStore, copyToClipboard } from '../services/store';
 import { User, SystemConfig, Conversation, Message } from '../types';
+import { formatPrecisionAmount, formatRatePercent } from '../utils/format';
 
 interface Props {
   onBack?: () => void;
@@ -94,7 +95,7 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
   const [passwordResetSuccess, setPasswordResetSuccess] = useState('');
 
   // Rate config state
-  const [customHourlyRate, setCustomHourlyRate] = useState(config.hourlyRatePercent.toString());
+  const [customHourlyRate, setCustomHourlyRate] = useState(formatRatePercent(config.hourlyRatePercent));
   const [minBoostMinutes, setMinBoostMinutes] = useState(Math.round((config.minBoostMs || 60000) / 60000).toString());
   const [maxBoostHours, setMaxBoostHours] = useState(Math.round((config.maxBoostMs || 86400000) / 3600000).toString());
   const [rateSuccess, setRateSuccess] = useState(false);
@@ -113,7 +114,7 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
         setStats(statsData);
         if (statsData.config) {
           setConfig(statsData.config);
-          setCustomHourlyRate(statsData.config.hourlyRatePercent.toString());
+          setCustomHourlyRate(formatRatePercent(statsData.config.hourlyRatePercent));
           setMinBoostMinutes(Math.round((statsData.config.minBoostMs || 60000) / 60000).toString());
           setMaxBoostHours(Math.round((statsData.config.maxBoostMs || 86400000) / 3600000).toString());
         }
@@ -1365,8 +1366,8 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
                       return (
                         <tr key={u.id} className="hover:bg-zinc-800/30 transition">
                           <td className="py-2.5 font-bold text-amber-400">#{u.id}</td>
-                          <td className="py-2.5 font-bold text-emerald-400 tabular-nums">${Number(u.balance).toFixed(2)}</td>
-                          <td className="py-2.5 text-zinc-300 tabular-nums">+${Number(u.lifetimeProfit || 0).toFixed(2)}</td>
+                          <td className="py-2.5 font-bold text-emerald-400 tabular-nums">${formatPrecisionAmount(u.balance, 8)}</td>
+                          <td className="py-2.5 text-zinc-300 tabular-nums">+${formatPrecisionAmount(u.lifetimeProfit || 0, 8)}</td>
                           <td className="py-2.5">
                             {u.boostState?.isActive ? (
                               <span className="text-emerald-400 font-semibold">
@@ -1423,15 +1424,18 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
                   <div className="flex gap-3">
                     <input
                       type="number"
-                      step="0.1"
+                      step="any"
                       min="0"
                       value={customHourlyRate}
                       onChange={(e) => setCustomHourlyRate(e.target.value)}
+                      placeholder="e.g. 0.000001 or 1.0"
                       className="flex-1 rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-xs text-zinc-100 font-mono focus:border-amber-500 focus:outline-none"
                     />
                     <span className="self-center font-mono text-xs text-zinc-500">% / hr</span>
                   </div>
-                  <span className="text-[10px] text-zinc-500 mt-1 block">Default benchmark is 1.0% per hour</span>
+                  <span className="text-[10px] text-zinc-500 mt-1 block">
+                    Supports high-precision decimals down to 0.000001% per hour (default benchmark is 1.0% / hr).
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
