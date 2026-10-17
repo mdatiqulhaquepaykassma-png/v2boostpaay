@@ -1,4 +1,4 @@
-import { FC, useState, useEffect } from 'react';
+import { FC, useState, useEffect, memo, useMemo, useCallback } from 'react';
 import { MessageSquare, Search, Send, ShieldAlert, ShieldCheck, ArrowLeft, Plus } from 'lucide-react';
 import { BoostPayStore } from '../services/store';
 import { User, Conversation, Message } from '../types';
@@ -9,6 +9,33 @@ interface Props {
   targetPeerId?: string | null;
 }
 
+const MessageItem = memo(({ m, isMe, isAdmin }: { m: Message, isMe: boolean, isAdmin: boolean }) => (
+  <div
+    className={`flex flex-col max-w-[80%] rounded-2xl p-3 text-xs leading-relaxed ${
+      isMe
+        ? 'ml-auto bg-amber-500 text-zinc-950 font-medium rounded-br-none shadow-md shadow-amber-500/10'
+        : isAdmin
+        ? 'mr-auto bg-sky-950/80 border border-sky-500/30 text-sky-100 rounded-bl-none'
+        : 'mr-auto bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-none'
+    }`}
+  >
+    {!isMe && (
+      <span className={`text-[10px] font-mono font-bold mb-1 flex items-center gap-1 ${
+        isAdmin ? 'text-sky-400' : 'text-zinc-400'
+      }`}>
+        {isAdmin && <ShieldCheck className="w-3 h-3" />}
+        {isAdmin ? 'Official Support' : `User #${m.senderId}`}
+      </span>
+    )}
+    <p>{m.text}</p>
+    <span className={`text-[9px] font-mono mt-1 self-end ${
+      isMe ? 'text-zinc-900/70' : 'text-zinc-500'
+    }`}>
+      {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+    </span>
+  </div>
+));
+
 export const MessengerView: FC<Props> = ({ currentUser, initialPeerId, targetPeerId }) => {
   const [conversations, setConversations] = useState<Conversation[]>(BoostPayStore.getConversations());
   const [messages, setMessages] = useState<Message[]>(BoostPayStore.getMessages());
@@ -16,7 +43,34 @@ export const MessengerView: FC<Props> = ({ currentUser, initialPeerId, targetPee
   const [searchTerm, setSearchTerm] = useState('');
   const [inputMsg, setInputMsg] = useState('');
 
+  // New Chat Dialog
+  const [isNewChatOpen, setIsNewChatOpen] = useState(false);
+  const [newPeerId, setNewPeerId] = useState('');
+  const [newChatError, setNewChatError] = useState('');
+
   const peerIdToUse = initialPeerId || targetPeerId;
+
+  // Subscription for real-time updates
+  useEffect(() => {
+    const unsubscribe = BoostPayStore.subscribeToChat((convs, msgs) => {
+      setConversations(convs);
+      setMessages(msgs);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Polling for server sync (500ms)
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      while (active) {
+        await BoostPayStore.syncChatState();
+        await new Promise(r => setTimeout(r, 500));
+      }
+    };
+    poll();
+    return () => { active = false; };
+  }, []);
 
   // Auto-focus conversation if initiated from Leaderboard
   useEffect(() => {
@@ -40,29 +94,6 @@ export const MessengerView: FC<Props> = ({ currentUser, initialPeerId, targetPee
       setActiveConv(existing);
     }
   }, [peerIdToUse, currentUser.id]);
-
-  // New Chat Dialog
-  const [isNewChatOpen, setIsNewChatOpen] = useState(false);
-  const [newPeerId, setNewPeerId] = useState('');
-  const [newChatError, setNewChatError] = useState('');
-
-  // 10ms real-time chat & message synchronization
-  useEffect(() => {
-    let active = true;
-
-    const poll = async () => {
-      while (active) {
-        const { conversations: newConvs, messages: newMsgs } = await BoostPayStore.syncChatState();
-        setConversations(newConvs);
-        setMessages(newMsgs);
-        
-        await new Promise(r => setTimeout(r, 500));
-      }
-    };
-
-    poll();
-    return () => { active = false; };
-  }, []);
 
   const userConversations = conversations.filter(c =>
     c.participants.includes(currentUser.id) || c.participants.includes('ADMIN_SUPPORT')
@@ -203,38 +234,14 @@ export const MessengerView: FC<Props> = ({ currentUser, initialPeerId, targetPee
           <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
             {messages
               .filter(m => m.conversationId === activeConv.id)
-              .map(m => {
-                const isMe = m.senderId === currentUser.id;
-                const isAdmin = m.senderRole === 'ADMIN';
-
-                return (
-                  <div
-                    key={m.id}
-                    className={`flex flex-col max-w-[80%] rounded-2xl p-3 text-xs leading-relaxed ${
-                      isMe
-                        ? 'ml-auto bg-amber-500 text-zinc-950 font-medium rounded-br-none shadow-md shadow-amber-500/10'
-                        : isAdmin
-                        ? 'mr-auto bg-sky-950/80 border border-sky-500/30 text-sky-100 rounded-bl-none'
-                        : 'mr-auto bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-none'
-                    }`}
-                  >
-                    {!isMe && (
-                      <span className={`text-[10px] font-mono font-bold mb-1 flex items-center gap-1 ${
-                        isAdmin ? 'text-sky-400' : 'text-zinc-400'
-                      }`}>
-                        {isAdmin && <ShieldCheck className="w-3 h-3" />}
-                        {isAdmin ? 'Official Support' : `User #${m.senderId}`}
-                      </span>
-                    )}
-                    <p>{m.text}</p>
-                    <span className={`text-[9px] font-mono mt-1 self-end ${
-                      isMe ? 'text-zinc-900/70' : 'text-zinc-500'
-                    }`}>
-                      {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                );
-              })}
+              .map(m => (
+                <MessageItem 
+                  key={m.id} 
+                  m={m} 
+                  isMe={m.senderId === currentUser.id}
+                  isAdmin={m.senderRole === 'ADMIN'}
+                />
+              ))}
 
             {messages.filter(m => m.conversationId === activeConv.id).length === 0 && (
               <div className="h-full flex items-center justify-center text-xs text-zinc-500">

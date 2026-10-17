@@ -293,17 +293,23 @@ export class BoostPayStore {
         if (data.messages && Array.isArray(data.messages)) {
           localStorage.setItem(STORAGE_MESSAGES, JSON.stringify(data.messages));
         }
+        const conversations = data.conversations || [];
+        const messages = data.messages || [];
+        this.triggerChatUpdate(conversations, messages);
         return {
-          conversations: data.conversations || [],
-          messages: data.messages || []
+          conversations,
+          messages
         };
       }
     } catch (err) {
       console.warn('syncChatState network error:', err);
     }
+    const conversations = this.getConversations();
+    const messages = this.getMessages();
+    this.triggerChatUpdate(conversations, messages);
     return {
-      conversations: this.getConversations(),
-      messages: this.getMessages()
+      conversations,
+      messages
     };
   }
 
@@ -882,6 +888,25 @@ export class BoostPayStore {
   }
 
   // --- Notification & Real-Time Alert Engine ---
+
+  private static chatListeners: ((conversations: Conversation[], messages: Message[]) => void)[] = [];
+
+  static subscribeToChat(listener: (conversations: Conversation[], messages: Message[]) => void): () => void {
+    this.chatListeners.push(listener);
+    return () => {
+      this.chatListeners = this.chatListeners.filter(l => l !== listener);
+    };
+  }
+
+  static triggerChatUpdate(conversations: Conversation[], messages: Message[]): void {
+    for (const listener of this.chatListeners) {
+      try {
+        listener(conversations, messages);
+      } catch (e) {
+        console.warn('Chat listener execution error:', e);
+      }
+    }
+  }
 
   static onToastNotification(listener: (toast: ToastData) => void): () => void {
     this.toastListeners.push(listener);

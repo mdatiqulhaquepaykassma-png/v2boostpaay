@@ -1,16 +1,27 @@
-import { FC, useState, useEffect, useRef } from 'react';
+import React, { FC, useState, useEffect, useRef, useMemo, memo } from 'react';
 import { Zap, Pause, Play, Send, TrendingUp, AlertCircle, Sparkles, RefreshCw } from 'lucide-react';
 import { BoostPayStore } from '../services/store';
 import { User, SystemConfig } from '../types';
 import { RecentTransactionsSection } from './RecentTransactionsSection';
 import { formatPrecisionAmount, formatStrict8Decimals, formatRatePercent } from '../utils/format';
 
-interface Props {
-  user: User;
-  onUpdateUser: (user: User) => void;
-  onOpenSendMoney: () => void;
-  config: SystemConfig;
+interface BalanceTickerProps {
+  intPart: string;
+  decPart: string;
 }
+
+const BalanceTicker = React.memo(({ intPart, decPart }: BalanceTickerProps) => (
+  <div className="flex items-baseline my-2 font-mono flex-wrap">
+    <span className="text-2xl font-bold text-amber-400 mr-1">$</span>
+    <span className="text-4xl font-extrabold text-white tracking-tight">
+      {Number(intPart).toLocaleString()}
+    </span>
+    <span className="text-2xl font-bold text-amber-400">
+      .{decPart}
+    </span>
+    <span className="text-xs font-mono text-zinc-500 ml-1.5 self-end pb-1">USD</span>
+  </div>
+));
 
 export const WalletView: FC<Props> = ({
   user,
@@ -40,13 +51,12 @@ export const WalletView: FC<Props> = ({
     prevBalanceRef.current = user.balance;
   }, [user.boostState.elapsedMs, user.boostState.accumulatedYield, user.balance, user.boostState.isActive]);
 
-  // Dynamic target duration calculation:
-  // "jar balance sobcheye besi tar 24 gonta , jar balance kom tar min 1 min"
-  const allUsers = BoostPayStore.getUsers();
-  const dynamicTargetDurationMs = user.boostState.targetDurationMs || BoostPayStore.calculateDynamicDuration(user.balance, allUsers);
+  const allUsers = useMemo(() => BoostPayStore.getUsers(), []);
+  const dynamicTargetDurationMs = useMemo(() => 
+    user.boostState.targetDurationMs || BoostPayStore.calculateDynamicDuration(user.balance, allUsers)
+  , [user.boostState.targetDurationMs, user.balance, allUsers]);
 
   // 1-second continuous server synchronization
-  // Keeps server state authoritative even if user goes offline, reloads, or closes tab!
   useEffect(() => {
     const syncWithServer = async () => {
       const freshUser = await BoostPayStore.syncUserFromServer(user.id);
@@ -62,23 +72,30 @@ export const WalletView: FC<Props> = ({
     return () => clearInterval(interval);
   }, [user.id, user.boostState.isActive, user.boostState.isPaused, onUpdateUser]);
 
-  // Client-side smooth interpolation ticker for ultra-smooth UI increments (10ms micro-steps)
+  // Client-side smooth interpolation ticker
   useEffect(() => {
     const isRunning = user.boostState.isActive && !user.boostState.isPaused;
     if (!isRunning) return;
 
+    let rafId: number;
     const ratePerMs = (config.hourlyRatePercent / 100) / 3600000;
-    const ticker = setInterval(() => {
+    let lastTick = Date.now();
+
+    const animate = () => {
+      const now = Date.now();
+      const delta = now - lastTick;
+      
       setElapsedMs((prev) => {
-        const next = prev + 10;
-        const target = user.boostState.targetDurationMs || dynamicTargetDurationMs;
-        if (next >= target) {
-          // Sync with server immediately to capture final completed reward
-          BoostPayStore.syncUserFromServer(user.id).then((fresh) => {
-            if (fresh) onUpdateUser(fresh);
-          });
-          return target;
+        const next = Math.min(prev + delta, user.boostState.targetDurationMs || dynamicTargetDurationMs);
+        
+        // Finalize boost completion
+        if (next >= (user.boostState.targetDurationMs || dynamicTargetDurationMs)) {
+            BoostPayStore.syncUserFromServer(user.id).then((fresh) => {
+                if (fresh) onUpdateUser(fresh);
+            });
+            return next;
         }
+
         const startingBal = Number(user.boostState.startingBalance ?? user.balance);
         const accrued = ratePerMs > 0
           ? (next * ratePerMs < 1e-5
@@ -88,9 +105,14 @@ export const WalletView: FC<Props> = ({
         setLiveYield(accrued);
         return next;
       });
-    }, 100);
 
-    return () => clearInterval(ticker);
+      lastTick = now;
+      rafId = requestAnimationFrame(animate);
+    };
+
+    rafId = requestAnimationFrame(animate);
+
+    return () => cancelAnimationFrame(rafId);
   }, [user.boostState.isActive, user.boostState.isPaused, user.balance, user.boostState.startingBalance, user.boostState.targetDurationMs, dynamicTargetDurationMs, config.hourlyRatePercent, user.id, onUpdateUser]);
 
   const handleStartBoost = async () => {
@@ -142,21 +164,27 @@ export const WalletView: FC<Props> = ({
   const progressPercent = Math.min(100, Math.max(0, (elapsedMs / (dynamicTargetDurationMs || 1)) * 100));
 
   // High precision 8-decimal formatting for main balance
-  const balanceStr = formatStrict8Decimals(user.balance);
-  const [intPart, decPart] = balanceStr.split('.');
+  const { intPart, decPart } = useMemo(() => {
+    const balanceStr = formatStrict8Decimals(user.balance);
+    const [int, dec] = balanceStr.split('.');
+    return { intPart: int, decPart: dec };
+  }, [user.balance]);
 
   // Profit calculations
-  const allTxs = BoostPayStore.getTransactions().filter(t => t.userId === user.id && (t.type === 'REWARD' || t.type === 'ADMIN_CREDIT'));
-  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const { todayProfit, sevenDayProfit } = useMemo(() => {
+    const allTxs = BoostPayStore.getTransactions().filter(t => t.userId === user.id && (t.type === 'REWARD' || t.type === 'ADMIN_CREDIT'));
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
-  const todayProfit = allTxs
-    .filter(t => t.timestamp >= oneDayAgo)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const sevenDayProfit = allTxs
-    .filter(t => t.timestamp >= sevenDaysAgo)
-    .reduce((sum, t) => sum + t.amount, 0);
+    return {
+      todayProfit: allTxs
+        .filter(t => t.timestamp >= oneDayAgo)
+        .reduce((sum, t) => sum + t.amount, 0),
+      sevenDayProfit: allTxs
+        .filter(t => t.timestamp >= sevenDaysAgo)
+        .reduce((sum, t) => sum + t.amount, 0)
+    };
+  }, [user.id]);
 
   return (
     <div className="w-full px-4 py-4 space-y-4">
@@ -200,16 +228,7 @@ export const WalletView: FC<Props> = ({
         </div>
 
         {/* Large Decimals Display */}
-        <div className="flex items-baseline my-2 font-mono flex-wrap">
-          <span className="text-2xl font-bold text-amber-400 mr-1">$</span>
-          <span className="text-4xl font-extrabold text-white tracking-tight">
-            {Number(intPart).toLocaleString()}
-          </span>
-          <span className="text-2xl font-bold text-amber-400">
-            .{decPart}
-          </span>
-          <span className="text-xs font-mono text-zinc-500 ml-1.5 self-end pb-1">USD</span>
-        </div>
+        <BalanceTicker intPart={intPart} decPart={decPart} />
 
         {/* Transfer Button */}
         <div className="mt-4">

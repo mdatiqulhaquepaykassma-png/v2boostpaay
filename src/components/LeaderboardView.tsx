@@ -1,4 +1,4 @@
-import { FC, useState, useEffect, useRef } from 'react';
+import React, { FC, useState, useEffect, useRef, memo, useMemo } from 'react';
 import { Trophy, MessageSquare, ShieldAlert, TrendingUp, Copy, Check, Sparkles, Award, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { BoostPayStore, copyToClipboard } from '../services/store';
 import { User } from '../types';
@@ -9,6 +9,108 @@ interface Props {
   currentUserId?: string;
   onSelectPeerForChat: (peerId: string) => void;
 }
+
+interface UserRowProps {
+  u: User;
+  idx: number;
+  isMe: boolean;
+  rankChanges: Map<string, number>;
+  onSelectPeerForChat: (peerId: string) => void;
+  copyId: (id: string) => Promise<void>;
+  copiedId: string | null;
+  getRankBadge: (rank: number) => JSX.Element;
+}
+
+const UserRow = React.memo(({ u, idx, isMe, rankChanges, onSelectPeerForChat, copyId, copiedId, getRankBadge }: UserRowProps) => {
+  const rank = idx + 1;
+  return (
+    <div
+      className={`flex items-center justify-between rounded-2xl border p-3.5 transition-all duration-500 ease-in-out ${
+        isMe
+          ? 'border-amber-500/40 bg-amber-500/5 shadow-lg shadow-amber-500/5'
+          : 'border-zinc-800/80 bg-zinc-950/60 hover:border-zinc-700 hover:bg-zinc-950'
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        {getRankBadge(rank)}
+        <div>
+          <div className="flex items-center gap-1.5 font-mono text-xs">
+            <span className={`font-bold ${isMe ? 'text-amber-400' : 'text-zinc-200'}`}>
+              #{u.id}
+            </span>
+            {isMe && (
+              <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.2 rounded font-sans font-medium">
+                You
+              </span>
+            )}
+            {(() => {
+              const change = rankChanges.get(u.id) || 0;
+              if (change > 0) {
+                return (
+                  <span className="flex items-center text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-mono font-bold animate-pulse">
+                    <ArrowUp className="w-3 h-3 mr-0.5" />+{change}
+                  </span>
+                );
+              }
+              if (change < 0) {
+                return (
+                  <span className="flex items-center text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded-full font-mono font-bold">
+                    <ArrowDown className="w-3 h-3 mr-0.5" />{change}
+                  </span>
+                );
+              }
+              return null;
+            })()}
+            <button
+              onClick={() => copyId(u.id)}
+              className="text-zinc-500 hover:text-zinc-300 p-0.5 transition"
+              title="Copy User ID"
+            >
+              {copiedId === u.id ? (
+                <Check className="w-3 h-3 text-emerald-400" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )}
+            </button>
+          </div>
+          <span className="text-[10px] text-zinc-500 font-mono sm:hidden">
+            Profit: +${formatPrecisionAmount(u.lifetimeProfit, 8)}
+          </span>
+        </div>
+      </div>
+      <div className="flex items-center gap-4 sm:gap-8 font-mono">
+        <div className="hidden sm:block text-right">
+          <span className="text-xs font-semibold text-emerald-400">
+            +${formatPrecisionAmount(u.lifetimeProfit, 8)}
+          </span>
+          <span className="text-[10px] text-zinc-500 block">Yield</span>
+        </div>
+        <div className="text-right">
+          <span className="text-xs sm:text-sm font-bold text-white">
+            ${formatPrecisionAmount(u.balance, 8)}
+          </span>
+          <span className="text-[10px] text-zinc-500 block font-sans">USD</span>
+        </div>
+        <div className="w-16 flex justify-end">
+          {isMe ? (
+            <span className="text-[11px] text-zinc-600 font-sans italic py-1 px-2 select-none">
+              Self
+            </span>
+          ) : (
+            <button
+              onClick={() => onSelectPeerForChat(u.id)}
+              className="flex items-center gap-1 rounded-xl bg-zinc-800 hover:bg-amber-500 hover:text-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 transition font-medium active:scale-95 shadow-sm"
+              title={`Message User #${u.id}`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Chat</span>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserId, onSelectPeerForChat }) => {
   const [users, setUsers] = useState<User[]>(() => {
@@ -53,11 +155,12 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
   }, []);
 
   const effectiveUserId = userProp?.id || currentUserId || '';
-  const myUser = users.find(u => u.id === effectiveUserId) || userProp || {
+  
+  const myUser = useMemo(() => users.find(u => u.id === effectiveUserId) || userProp || {
     id: effectiveUserId,
     balance: 0,
     lifetimeProfit: 0
-  };
+  }, [users, effectiveUserId, userProp]);
 
   const copyId = async (id: string) => {
     const ok = await copyToClipboard(id);
@@ -67,7 +170,7 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
     }
   };
 
-  const currentUserRank = users.findIndex(u => u.id === effectiveUserId) + 1;
+  const currentUserRank = useMemo(() => users.findIndex(u => u.id === effectiveUserId) + 1, [users, effectiveUserId]);
 
   const getRankBadge = (rank: number) => {
     if (rank === 1) {
@@ -166,109 +269,19 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
         </div>
 
         <div className="space-y-2.5">
-          {users.map((u, idx) => {
-            const rank = idx + 1;
-            const isMe = u.id === effectiveUserId;
-
-            return (
-              <div
-                key={u.id}
-                className={`flex items-center justify-between rounded-2xl border p-3.5 transition-all duration-500 ease-in-out ${
-                  isMe
-                    ? 'border-amber-500/40 bg-amber-500/5 shadow-lg shadow-amber-500/5'
-                    : 'border-zinc-800/80 bg-zinc-950/60 hover:border-zinc-700 hover:bg-zinc-950'
-                }`}
-              >
-                {/* Left: Rank & User ID */}
-                <div className="flex items-center gap-3">
-                  {getRankBadge(rank)}
-
-                  <div>
-                    <div className="flex items-center gap-1.5 font-mono text-xs">
-                      <span className={`font-bold ${isMe ? 'text-amber-400' : 'text-zinc-200'}`}>
-                        #{u.id}
-                      </span>
-                      {isMe && (
-                        <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.2 rounded font-sans font-medium">
-                          You
-                        </span>
-                      )}
-                      {/* Rank Movement Badge */}
-                      {(() => {
-                        const change = rankChanges.get(u.id) || 0;
-                        if (change > 0) {
-                          return (
-                            <span className="flex items-center text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-mono font-bold animate-pulse">
-                              <ArrowUp className="w-3 h-3 mr-0.5" />+{change}
-                            </span>
-                          );
-                        }
-                        if (change < 0) {
-                          return (
-                            <span className="flex items-center text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded-full font-mono font-bold">
-                              <ArrowDown className="w-3 h-3 mr-0.5" />{change}
-                            </span>
-                          );
-                        }
-                        return null;
-                      })()}
-                      <button
-                        onClick={() => copyId(u.id)}
-                        className="text-zinc-500 hover:text-zinc-300 p-0.5 transition"
-                        title="Copy User ID"
-                      >
-                        {copiedId === u.id ? (
-                          <Check className="w-3 h-3 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                      </button>
-                    </div>
-                    <span className="text-[10px] text-zinc-500 font-mono sm:hidden">
-                      Profit: +${formatPrecisionAmount(u.lifetimeProfit, 8)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Right: Metrics & Chat Action */}
-                <div className="flex items-center gap-4 sm:gap-8 font-mono">
-                  {/* Lifetime Profit (desktop) */}
-                  <div className="hidden sm:block text-right">
-                    <span className="text-xs font-semibold text-emerald-400">
-                      +${formatPrecisionAmount(u.lifetimeProfit, 8)}
-                    </span>
-                    <span className="text-[10px] text-zinc-500 block">Yield</span>
-                  </div>
-
-                  {/* Main Balance */}
-                  <div className="text-right">
-                    <span className="text-xs sm:text-sm font-bold text-white">
-                      ${formatPrecisionAmount(u.balance, 8)}
-                    </span>
-                    <span className="text-[10px] text-zinc-500 block font-sans">USD</span>
-                  </div>
-
-                  {/* Direct Message Action */}
-                  <div className="w-16 flex justify-end">
-                    {isMe ? (
-                      <span className="text-[11px] text-zinc-600 font-sans italic py-1 px-2 select-none">
-                        Self
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => onSelectPeerForChat(u.id)}
-                        className="flex items-center gap-1 rounded-xl bg-zinc-800 hover:bg-amber-500 hover:text-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 transition font-medium active:scale-95 shadow-sm"
-                        title={`Message User #${u.id}`}
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Chat</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {users.map((u, idx) => (
+            <UserRow
+              key={u.id}
+              u={u}
+              idx={idx}
+              isMe={u.id === effectiveUserId}
+              rankChanges={rankChanges}
+              onSelectPeerForChat={onSelectPeerForChat}
+              copyId={copyId}
+              copiedId={copiedId}
+              getRankBadge={getRankBadge}
+            />
+          ))}
         </div>
       </div>
     </div>

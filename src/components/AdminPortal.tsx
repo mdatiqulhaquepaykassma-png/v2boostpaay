@@ -107,36 +107,44 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
   const refreshData = async () => {
     setIsRefreshing(true);
     try {
-      // 1. Fetch server stats
-      const statsRes = await fetch('/api/admin/stats');
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStats(statsData);
-        if (statsData.config) {
-          setConfig(statsData.config);
-          setCustomHourlyRate(formatRatePercent(statsData.config.hourlyRatePercent));
-          setMinBoostMinutes(Math.round((statsData.config.minBoostMs || 60000) / 60000).toString());
-          setMaxBoostHours(Math.round((statsData.config.maxBoostMs || 86400000) / 3600000).toString());
+      // Fetch latest stats, users, and config
+      const res = await fetch('/api/admin/stats');
+      if (res.ok) {
+        const data = await res.json();
+        setStats({
+          totalUsers: data.totalUsers,
+          totalLiquidity: data.totalLiquidity,
+          totalProfitPaid: data.totalProfitPaid,
+          activeBoosters: data.activeBoosters,
+          pausedBoosters: data.pausedBoosters,
+          totalTransactions: data.totalTransactions,
+          dokployStatus: data.dokployStatus
+        });
+        
+        if (data.config) {
+          setConfig(data.config);
+          BoostPayStore.saveConfig(data.config); // Keep local in sync
+          setCustomHourlyRate(formatRatePercent(data.config.hourlyRatePercent));
+          setMinBoostMinutes(Math.round((data.config.minBoostMs || 60000) / 60000).toString());
+          setMaxBoostHours(Math.round((data.config.maxBoostMs || 86400000) / 3600000).toString());
         }
       }
 
-      // 2. Fetch server users
+      // Fetch latest users
       const usersRes = await fetch('/api/admin/users');
       if (usersRes.ok) {
         const data = await usersRes.json();
-        if (data.users && Array.isArray(data.users)) {
-          setUsers(data.users);
-          BoostPayStore.saveUsers(data.users);
-        }
-      } else {
-        await BoostPayStore.initSync();
-        setUsers(BoostPayStore.getUsers());
+        setUsers(data.users);
+        BoostPayStore.saveUsers(data.users);
       }
 
       setConversations(BoostPayStore.getConversations());
       setMessages(BoostPayStore.getMessages());
-    } catch {
+    } catch (err) {
+      console.error('Failed to refresh admin data:', err);
+      // Fallback
       setUsers(BoostPayStore.getUsers());
+      setConfig(BoostPayStore.getConfig());
     } finally {
       setIsRefreshing(false);
     }
