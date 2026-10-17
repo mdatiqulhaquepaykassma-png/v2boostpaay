@@ -55,8 +55,8 @@ export const WalletView: FC<Props> = ({
       }
     };
 
-    // Run every 10ms for ultra-fast 10ms real-time synchronization
-    const intervalTime = (user.boostState.isActive && !user.boostState.isPaused) ? 10 : 500;
+    // Run every 500ms when boost is active, or every 1000ms when idle
+    const intervalTime = (user.boostState.isActive && !user.boostState.isPaused) ? 500 : 1000;
     const interval = setInterval(syncWithServer, intervalTime);
 
     return () => clearInterval(interval);

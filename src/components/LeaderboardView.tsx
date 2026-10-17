@@ -44,7 +44,7 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
         setRankChanges(newChanges);
         setUsers(sorted);
         
-        await new Promise(r => setTimeout(r, 10));
+        await new Promise(r => setTimeout(r, 500));
       }
     };
 

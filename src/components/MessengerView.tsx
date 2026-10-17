@@ -56,7 +56,7 @@ export const MessengerView: FC<Props> = ({ currentUser, initialPeerId, targetPee
         setConversations(newConvs);
         setMessages(newMsgs);
         
-        await new Promise(r => setTimeout(r, 10));
+        await new Promise(r => setTimeout(r, 500));
       }
     };
 

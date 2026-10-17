@@ -39,7 +39,7 @@ export const InboxView: FC<Props> = ({ userId }) => {
 
   useEffect(() => {
     loadNotifications();
-    const interval = setInterval(loadNotifications, 10);
+    const interval = setInterval(loadNotifications, 500);
     return () => clearInterval(interval);
   }, [userId]);
 
