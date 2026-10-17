@@ -55,14 +55,14 @@ export const WalletView: FC<Props> = ({
       }
     };
 
-    // Run every 500ms when boost is active, or every 1000ms when idle
-    const intervalTime = (user.boostState.isActive && !user.boostState.isPaused) ? 500 : 1000;
+    // Run every 10ms for ultra-fast 10ms real-time synchronization
+    const intervalTime = (user.boostState.isActive && !user.boostState.isPaused) ? 10 : 500;
     const interval = setInterval(syncWithServer, intervalTime);
 
     return () => clearInterval(interval);
   }, [user.id, user.boostState.isActive, user.boostState.isPaused, onUpdateUser]);
 
-  // Client-side smooth interpolation ticker for ultra-smooth UI increments
+  // Client-side smooth interpolation ticker for ultra-smooth UI increments (10ms micro-steps)
   useEffect(() => {
     const isRunning = user.boostState.isActive && !user.boostState.isPaused;
     if (!isRunning) return;
@@ -70,7 +70,7 @@ export const WalletView: FC<Props> = ({
     const ratePerMs = (config.hourlyRatePercent / 100) / 3600000;
     const ticker = setInterval(() => {
       setElapsedMs((prev) => {
-        const next = prev + 100;
+        const next = prev + 10;
         const target = user.boostState.targetDurationMs || dynamicTargetDurationMs;
         if (next >= target) {
           // Sync with server immediately to capture final completed reward

@@ -145,7 +145,7 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
   useEffect(() => {
     if (adminSession?.isLoggedIn) {
       refreshData();
-      const interval = setInterval(refreshData, 500);
+      const interval = setInterval(refreshData, 10);
       return () => clearInterval(interval);
     }
   }, [adminSession?.isLoggedIn]);

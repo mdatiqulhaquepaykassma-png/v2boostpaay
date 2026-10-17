@@ -1,5 +1,5 @@
-import { FC, useState, useEffect } from 'react';
-import { Trophy, MessageSquare, ShieldAlert, TrendingUp, Copy, Check, Sparkles, Award } from 'lucide-react';
+import { FC, useState, useEffect, useRef } from 'react';
+import { Trophy, MessageSquare, ShieldAlert, TrendingUp, Copy, Check, Sparkles, Award, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { BoostPayStore, copyToClipboard } from '../services/store';
 import { User } from '../types';
 import { formatPrecisionAmount } from '../utils/format';
@@ -18,13 +18,32 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  const prevRanksRef = useRef<Map<string, number>>(new Map());
+  const [rankChanges, setRankChanges] = useState<Map<string, number>>(new Map());
+
   useEffect(() => {
     const updateLeaderboard = () => {
       const all = BoostPayStore.getUsers();
-      setUsers([...all].sort((a, b) => b.balance - a.balance || b.lifetimeProfit - a.lifetimeProfit));
+      const sorted = [...all].sort((a, b) => b.balance - a.balance || b.lifetimeProfit - a.lifetimeProfit);
+      
+      const newChanges = new Map<string, number>();
+      sorted.forEach((u, newIdx) => {
+        const oldRank = prevRanksRef.current.get(u.id);
+        const newRank = newIdx + 1;
+        if (oldRank !== undefined) {
+          newChanges.set(u.id, oldRank - newRank); // positive = moved up, negative = moved down
+        } else {
+          newChanges.set(u.id, 0);
+        }
+        prevRanksRef.current.set(u.id, newRank);
+      });
+
+      setRankChanges(newChanges);
+      setUsers(sorted);
     };
+
     updateLeaderboard();
-    const interval = setInterval(updateLeaderboard, 500);
+    const interval = setInterval(updateLeaderboard, 10);
     return () => clearInterval(interval);
   }, []);
 
@@ -169,6 +188,25 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
                           You
                         </span>
                       )}
+                      {/* Rank Movement Badge */}
+                      {(() => {
+                        const change = rankChanges.get(u.id) || 0;
+                        if (change > 0) {
+                          return (
+                            <span className="flex items-center text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-mono font-bold animate-pulse">
+                              <ArrowUp className="w-3 h-3 mr-0.5" />+{change}
+                            </span>
+                          );
+                        }
+                        if (change < 0) {
+                          return (
+                            <span className="flex items-center text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded-full font-mono font-bold">
+                              <ArrowDown className="w-3 h-3 mr-0.5" />{change}
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                       <button
                         onClick={() => copyId(u.id)}
                         className="text-zinc-500 hover:text-zinc-300 p-0.5 transition"

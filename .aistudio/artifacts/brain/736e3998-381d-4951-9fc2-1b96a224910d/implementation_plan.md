@@ -1,50 +1,24 @@
-# 100% Real-Time Synchronized Engine
+# Implementation Plan - 10ms Real-Time Website & Leaderboard Animations
 
-Make the entire applet 100% real-time across all sessions, tabs, and administrative actions with an ultra-fast 500ms background polling and cross-session event synchronization.
+## Objective
+Implement 10ms real-time synchronization and ultra-smooth cascade slide animations for the leaderboard, along with 10ms micro-step compounding ticker increments across the entire application.
 
-## User Review & Critical Decisions
+## Proposed Changes
 
-> [!IMPORTANT]
-> The user confirmed the following preferences:
-> - **Sync Interval**: 500ms ultra-fast sync interval.
-> - **Scope**: All features including chat, SMS alerts, admin portal, wallet balances, yield tickers, and leaderboards.
+### 1. Global 10ms Real-Time Sync Interval
+- Update `src/App.tsx` background sync and state polling interval to **10ms**.
+- Update `AdminPortal.tsx` telemetry refresh interval to **10ms**.
+- Update `InboxView.tsx` notification refresh interval to **10ms**.
+- Update `LeaderboardView.tsx` polling interval to **10ms**.
+- Update `WalletView.tsx` server sync interval to **10ms**.
 
-## 1. Overview & Core Concept
+### 2. Ultra-Smooth 10ms Micro-Step Compounding Ticker
+- Update `WalletView.tsx` client-side yield interpolation ticker to **10ms** for buttery-smooth compounding increments.
 
-- **What It Does**: Upgrades all state stores, backend API endpoints, and client-side components to poll and synchronize state every 500ms. Whenever an admin adjusts rates, credits/debits balances, or sends a notification, or whenever a user performs a boost/deposit/withdrawal, all open browser tabs and sessions reflect the changes instantly without manual refresh.
-- **Key Value**: True real-time multi-user synchronization and zero lag across wallet tracking, compounding yield tickers, SMS receipts, chat channels, and superadmin telemetry.
+### 3. Cascading Slide Animations & Rank Movement Badges in LeaderboardView
+- Enhance `LeaderboardView.tsx` with rank change tracking (showing up/down rank movement badges).
+- Add smooth cascading entrance animations (`transition-all duration-300 ease-out transform`) and highlight pulses when users change leaderboard positions.
 
-## 2. User Experience & Visual Design
-
-- **Visual Indicators**: Clean, subtle WebSocket-style live indicator ("Live Sync Active") in header with tabular-nums latency counter.
-- **Smooth Updates**: All balance tickers, recent transactions list, inbox notifications, and admin telemetry tables update smoothly every 500ms without layout jitter.
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Polling vs WebSockets**: Polling every 500ms against the server file database (`server.ts`) ensures absolute reliability in the containerized preview environment without dropped WebSocket connections.
-- **Optimistic UI + Server Reconciliation**: Client actions update local state immediately and reconcile with server state on the next 500ms tick.
-
-## 4. Technical Architecture & Data Strategy
-
-```
-┌──────────────────────────────────────────────┐
-│                Client Tabs                   │
-│  (WalletView, AdminPortal, Inbox, Chat)      │
-└──────────────────────┬───────────────────────┘
-                       │ 500ms polling / fetch
-                       ▼
-┌──────────────────────────────────────────────┐
-│               Express Server                 │
-│                 (server.ts)                  │
-│       - Background 24/7 Yield Ticker         │
-│       - Real-time DB state read/write        │
-└──────────────────────┬───────────────────────┘
-                       │ JSON file persistence
-                       ▼
-┌──────────────────────────────────────────────┐
-│           JSON Database (`db.json`)          │
-└──────────────────────────────────────────────┘
-```
-
-- **State Store Upgrades**: Update `src/services/store.ts` to poll server state every 500ms for user sessions, system config, transactions, notifications, and chat messages.
-- **Server Endpoint Enhancements**: Ensure all admin operations, user boosts, and chat endpoints instantly persist to `db.json` and broadcast on the next fetch cycle.
+## Verification Plan
+- Compile applet with `compile_applet`.
+- Run type check with `lint_applet`.

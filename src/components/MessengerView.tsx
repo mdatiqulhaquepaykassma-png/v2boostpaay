@@ -46,6 +46,13 @@ export const MessengerView: FC<Props> = ({ currentUser, initialPeerId, targetPee
   const [newPeerId, setNewPeerId] = useState('');
   const [newChatError, setNewChatError] = useState('');
 
+  // 10ms real-time chat & message synchronization
+  useEffect(() => {
+    refreshConvs();
+    const interval = setInterval(refreshConvs, 10);
+    return () => clearInterval(interval);
+  }, []);
+
   const refreshConvs = () => {
     setConversations(BoostPayStore.getConversations());
     setMessages(BoostPayStore.getMessages());
