@@ -165,10 +165,10 @@ export const WalletView: FC<Props> = ({
 
   // High precision 8-decimal formatting for main balance
   const { intPart, decPart } = useMemo(() => {
-    const balanceStr = formatStrict8Decimals(user.balance);
+    const balanceStr = formatStrict8Decimals(liveYield + user.balance);
     const [int, dec] = balanceStr.split('.');
     return { intPart: int, decPart: dec };
-  }, [user.balance]);
+  }, [liveYield, user.balance]);
 
   // Profit calculations
   const { todayProfit, sevenDayProfit } = useMemo(() => {

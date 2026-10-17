@@ -172,7 +172,7 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
 
   const currentUserRank = useMemo(() => users.findIndex(u => u.id === effectiveUserId) + 1, [users, effectiveUserId]);
 
-  const getRankBadge = (rank: number) => {
+  const getRankBadge = useMemo(() => (rank: number) => {
     if (rank === 1) {
       return (
         <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400 font-bold text-xs border border-amber-500/30">
@@ -199,7 +199,7 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
         {rank}
       </span>
     );
-  };
+  }, []);
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-6 space-y-5 text-zinc-100">

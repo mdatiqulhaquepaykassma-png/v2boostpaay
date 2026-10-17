@@ -80,6 +80,13 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
     }
   });
 
+  // 4. Admin Portal input focus tracking
+  const isEditing = useRef({
+    hourlyRate: false,
+    minBoost: false,
+    maxBoost: false
+  });
+
   // User Management State
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -107,7 +114,6 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
   const refreshData = async () => {
     setIsRefreshing(true);
     try {
-      // Fetch latest stats, users, and config
       const res = await fetch('/api/admin/stats');
       if (res.ok) {
         const data = await res.json();
@@ -123,28 +129,23 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
         
         if (data.config) {
           setConfig(data.config);
-          BoostPayStore.saveConfig(data.config); // Keep local in sync
-          setCustomHourlyRate(formatRatePercent(data.config.hourlyRatePercent));
-          setMinBoostMinutes(Math.round((data.config.minBoostMs || 60000) / 60000).toString());
-          setMaxBoostHours(Math.round((data.config.maxBoostMs || 86400000) / 3600000).toString());
+          BoostPayStore.saveConfig(data.config); 
+          if (!isEditing.current.hourlyRate) setCustomHourlyRate(formatRatePercent(data.config.hourlyRatePercent));
+          if (!isEditing.current.minBoost) setMinBoostMinutes(Math.round((data.config.minBoostMs || 60000) / 60000).toString());
+          if (!isEditing.current.maxBoost) setMaxBoostHours(Math.round((data.config.maxBoostMs || 86400000) / 3600000).toString());
         }
       }
-
-      // Fetch latest users
+      
       const usersRes = await fetch('/api/admin/users');
       if (usersRes.ok) {
         const data = await usersRes.json();
         setUsers(data.users);
         BoostPayStore.saveUsers(data.users);
       }
-
       setConversations(BoostPayStore.getConversations());
       setMessages(BoostPayStore.getMessages());
     } catch (err) {
       console.error('Failed to refresh admin data:', err);
-      // Fallback
-      setUsers(BoostPayStore.getUsers());
-      setConfig(BoostPayStore.getConfig());
     } finally {
       setIsRefreshing(false);
     }
@@ -1435,6 +1436,8 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
                       step="any"
                       min="0"
                       value={customHourlyRate}
+                      onFocus={() => isEditing.current.hourlyRate = true}
+                      onBlur={() => isEditing.current.hourlyRate = false}
                       onChange={(e) => setCustomHourlyRate(e.target.value)}
                       placeholder="e.g. 0.000001 or 1.0"
                       className="flex-1 rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-xs text-zinc-100 font-mono focus:border-amber-500 focus:outline-none"
@@ -1455,6 +1458,8 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
                       type="number"
                       min="1"
                       value={minBoostMinutes}
+                      onFocus={() => isEditing.current.minBoost = true}
+                      onBlur={() => isEditing.current.minBoost = false}
                       onChange={(e) => setMinBoostMinutes(e.target.value)}
                       className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-xs text-zinc-100 font-mono focus:border-amber-500 focus:outline-none"
                     />
@@ -1469,6 +1474,8 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
                       type="number"
                       min="1"
                       value={maxBoostHours}
+                      onFocus={() => isEditing.current.maxBoost = true}
+                      onBlur={() => isEditing.current.maxBoost = false}
                       onChange={(e) => setMaxBoostHours(e.target.value)}
                       className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-xs text-zinc-100 font-mono focus:border-amber-500 focus:outline-none"
                     />
