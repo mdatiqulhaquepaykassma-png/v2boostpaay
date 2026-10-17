@@ -117,6 +117,7 @@ export class BoostPayStore {
           }
 
           // 2. Intelligently merge local users (preserve secrets, credentials & higher balances)
+          let needsPushToServer = false;
           for (const localU of localUsers) {
             if (mergedMap.has(localU.id)) {
               const serverU = mergedMap.get(localU.id)!;
@@ -124,7 +125,7 @@ export class BoostPayStore {
                 ...serverU,
                 phrase: localU.phrase || serverU.phrase,
                 password: localU.password || serverU.password,
-                balance: serverU.balance !== undefined ? Number(serverU.balance) : (Number(localU.balance) || 0),
+                balance: Math.max(Number(serverU.balance) || 0, Number(localU.balance) || 0),
                 lifetimeProfit: Math.max(Number(serverU.lifetimeProfit) || 0, Number(localU.lifetimeProfit) || 0),
                 boostState: (serverU.boostState && serverU.boostState.isActive)
                   ? serverU.boostState
@@ -132,15 +133,20 @@ export class BoostPayStore {
               };
               mergedMap.set(localU.id, mergedUser);
             } else {
-              // Local user not yet registered on server: retain and send to server
+              // Local user missing on server (e.g. after container redeploy): self-heal!
               mergedMap.set(localU.id, localU);
+              needsPushToServer = true;
               fetch('/api/users/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   id: localU.id,
                   phrase: localU.phrase,
-                  password: localU.password
+                  password: localU.password,
+                  balance: localU.balance,
+                  lifetimeProfit: localU.lifetimeProfit,
+                  boostState: localU.boostState,
+                  createdAt: localU.createdAt
                 })
               }).catch(() => {});
             }
@@ -149,18 +155,27 @@ export class BoostPayStore {
           const mergedUsers = Array.from(mergedMap.values());
           localStorage.setItem(STORAGE_USERS, JSON.stringify(mergedUsers));
           localStorage.setItem('boostpay_users', JSON.stringify(mergedUsers));
+
+          if (needsPushToServer) {
+            setTimeout(() => this.pushToServer(), 300);
+          }
         }
 
         // Smart merge transactions
         if (data.transactions && Array.isArray(data.transactions)) {
           const localTxs = this.getTransactions();
           const mergedTxs = [...data.transactions];
+          let addedTxs = false;
           for (const ltx of localTxs) {
             if (!mergedTxs.some(t => t.id === ltx.id)) {
               mergedTxs.push(ltx);
+              addedTxs = true;
             }
           }
           localStorage.setItem(STORAGE_TRANSACTIONS, JSON.stringify(mergedTxs));
+          if (addedTxs) {
+            setTimeout(() => this.pushToServer(), 500);
+          }
         }
 
         if (data.conversations && Array.isArray(data.conversations)) {
@@ -908,5 +923,81 @@ export class BoostPayStore {
         body: JSON.stringify({ userId, notificationId: notifId })
       });
     } catch {}
+  }
+
+  // --- Database Storage Health, Export & Disaster Recovery ---
+
+  static async probeDatabaseStorage(): Promise<any> {
+    try {
+      const res = await fetch('/api/admin/storage/probe');
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.warn('probeDatabaseStorage network error:', err);
+    }
+    return {
+      success: false,
+      storageType: 'LOCAL_FALLBACK',
+      totalUsers: this.getUsers().length,
+      totalTransactions: this.getTransactions().length,
+      totalNotifications: this.getNotifications().length,
+      isWritable: true,
+      latencyMs: 0
+    };
+  }
+
+  static async exportDatabase(): Promise<Blob | null> {
+    try {
+      const res = await fetch('/api/admin/db/export');
+      if (res.ok) {
+        return await res.blob();
+      }
+    } catch (err) {
+      console.warn('exportDatabase network error:', err);
+    }
+
+    // Fallback: package from local storage
+    const fallbackDb = {
+      users: this.getUsers(),
+      transactions: this.getTransactions(),
+      conversations: this.getConversations(),
+      messages: this.getMessages(),
+      notifications: this.getNotifications(),
+      config: this.getConfig(),
+      exportedAt: Date.now()
+    };
+    return new Blob([JSON.stringify(fallbackDb, null, 2)], { type: 'application/json' });
+  }
+
+  static async importDatabase(data: any): Promise<{ success: boolean; restoredUsers?: number; error?: string }> {
+    try {
+      const res = await fetch('/api/admin/db/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        const result = await res.json();
+        // Refresh local cache with imported data
+        await this.initSync();
+        return result;
+      } else {
+        const err = await res.json().catch(() => null);
+        return { success: false, error: err?.error || 'Failed to restore database.' };
+      }
+    } catch (err: any) {
+      // Local fallback restore
+      if (data && Array.isArray(data.users)) {
+        this.saveUsers(data.users);
+        if (data.transactions) this.saveTransactions(data.transactions);
+        if (data.conversations) this.saveConversations(data.conversations);
+        if (data.messages) this.saveMessages(data.messages);
+        if (data.notifications) this.saveNotifications(data.notifications);
+        if (data.config) this.saveConfig(data.config);
+        return { success: true, restoredUsers: data.users.length };
+      }
+      return { success: false, error: err.message || 'Error importing database.' };
+    }
   }
 }

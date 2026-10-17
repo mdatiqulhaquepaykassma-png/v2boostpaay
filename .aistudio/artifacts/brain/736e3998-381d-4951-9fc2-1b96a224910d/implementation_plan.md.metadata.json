@@ -1,6 +1,6 @@
 {
-  "summary": "Architectural blueprint for real-time P2P floating toast alerts, an SMS-style notification inbox tab with unread badge tracking, and multi-event alert generation across transfers, yields, and system updates.",
-  "updatedAt": "2026-10-17T13:00:10.508661554Z",
+  "summary": "Architectural plan to prevent data loss on redeployment via dual self-healing persistence, an Admin Database Inspector with live write testing and 1-click JSON backup/restore, and optional PostgreSQL DATABASE_URL support.",
+  "updatedAt": "2026-10-17T13:21:33.772427928Z",
   "requestFeedback": true,
   "userFacing": true
 }

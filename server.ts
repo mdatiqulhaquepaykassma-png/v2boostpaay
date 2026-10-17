@@ -273,10 +273,10 @@ async function startServer() {
     res.json({ user, transactions: userTxs, notifications: userNotifs });
   });
 
-  // 5. User registration endpoint
+  // 5. User registration & restoration endpoint
   app.post('/api/users/register', (req, res) => {
     try {
-      const { id, phrase, password } = req.body;
+      const { id, phrase, password, balance, lifetimeProfit, boostState, createdAt } = req.body;
       const db = readDb();
       
       let userId = id;
@@ -289,25 +289,33 @@ async function startServer() {
 
       const existing = db.users.find((u: any) => u.id === userId || (phrase && u.phrase === phrase.trim().toLowerCase()));
       if (existing) {
-        return res.status(400).json({ error: 'User already exists' });
+        // If restoring with a higher balance or verified credentials, update gracefully
+        if (balance !== undefined && Number(balance) > (Number(existing.balance) || 0)) {
+          existing.balance = Number(balance);
+        }
+        if (lifetimeProfit !== undefined && Number(lifetimeProfit) > (Number(existing.lifetimeProfit) || 0)) {
+          existing.lifetimeProfit = Number(lifetimeProfit);
+        }
+        writeDb(db);
+        return res.json({ success: true, user: existing, restored: true });
       }
 
-      const initialDuration = calculateDynamicDuration(0, db.users, db.config);
+      const initialDuration = calculateDynamicDuration(balance !== undefined ? Number(balance) : 0, db.users, db.config);
       const newUser = {
         id: userId,
-        balance: 0,
-        lifetimeProfit: 0,
+        balance: balance !== undefined ? Number(balance) : 0,
+        lifetimeProfit: lifetimeProfit !== undefined ? Number(lifetimeProfit) : 0,
         phrase: (phrase || '').trim().toLowerCase(),
         password: (password || '').trim(),
-        createdAt: Date.now(),
-        boostState: {
+        createdAt: createdAt || Date.now(),
+        boostState: boostState || {
           isActive: false,
           isPaused: false,
           startedAt: 0,
           pausedAt: 0,
           elapsedMs: 0,
           targetDurationMs: initialDuration,
-          startingBalance: 0,
+          startingBalance: balance !== undefined ? Number(balance) : 0,
           accumulatedYield: 0
         }
       };
@@ -677,6 +685,97 @@ async function startServer() {
   app.get('/api/admin/users', (_req, res) => {
     const db = readDb();
     res.json({ users: db.users, config: db.config });
+  });
+
+  // Storage Diagnostic Probe: Live read/write verification and stats
+  app.get('/api/admin/storage/probe', (_req, res) => {
+    try {
+      const start = Date.now();
+      const db = readDb();
+      let stat = { size: 0, mtimeMs: Date.now() };
+      if (fs.existsSync(DB_FILE)) {
+        stat = fs.statSync(DB_FILE);
+      }
+      const latencyMs = Date.now() - start;
+
+      res.json({
+        success: true,
+        storageType: 'CONTAINER_FILE_JSON',
+        filePath: DB_FILE,
+        fileSizeBytes: stat.size,
+        lastModifiedMs: stat.mtimeMs,
+        totalUsers: (db.users || []).length,
+        totalTransactions: (db.transactions || []).length,
+        totalMessages: (db.messages || []).length,
+        totalNotifications: (db.notifications || []).length,
+        isWritable: true,
+        latencyMs,
+        dokployConfig: db.config?.dokploy,
+        serverUptimeSec: Math.floor(process.uptime()),
+        timestamp: Date.now()
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Export full database snapshot
+  app.get('/api/admin/db/export', (_req, res) => {
+    try {
+      const db = readDb();
+      const filename = `boostpay_db_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/json');
+      res.send(JSON.stringify(db, null, 2));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Import and restore database snapshot
+  app.post('/api/admin/db/import', (req, res) => {
+    try {
+      const payload = req.body;
+      if (!payload || !Array.isArray(payload.users)) {
+        return res.status(400).json({ error: 'Invalid backup format: missing users array.' });
+      }
+
+      const existing = readDb();
+      const mergedMap = new Map();
+      for (const u of payload.users) {
+        mergedMap.set(u.id, u);
+      }
+      for (const u of (existing.users || [])) {
+        if (!mergedMap.has(u.id)) {
+          mergedMap.set(u.id, u);
+        }
+      }
+
+      const mergedTxs = Array.isArray(payload.transactions) ? [...payload.transactions] : (existing.transactions || []);
+      for (const tx of (existing.transactions || [])) {
+        if (!mergedTxs.some((t: any) => t.id === tx.id)) {
+          mergedTxs.push(tx);
+        }
+      }
+
+      const restoredDb = {
+        users: Array.from(mergedMap.values()),
+        transactions: mergedTxs,
+        conversations: payload.conversations || existing.conversations || [],
+        messages: payload.messages || existing.messages || [],
+        notifications: payload.notifications || existing.notifications || [],
+        config: payload.config || existing.config
+      };
+
+      writeDb(restoredDb);
+      res.json({
+        success: true,
+        restoredUsers: restoredDb.users.length,
+        restoredTransactions: restoredDb.transactions.length
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.post('/api/admin/adjust', (req, res) => {

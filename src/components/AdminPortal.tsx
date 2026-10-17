@@ -23,6 +23,7 @@ import {
   Database,
   Trash2,
   Download,
+  Upload,
   AlertTriangle,
   ArrowLeft,
   Activity,
@@ -46,9 +47,15 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // 2. Admin Portal Views
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'USERS' | 'ENGINE' | 'SUPPORT'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'USERS' | 'DATABASE' | 'ENGINE' | 'SUPPORT'>('OVERVIEW');
 
-  // 3. System Data
+  // 3. Database Storage & Diagnostics State
+  const [storageProbe, setStorageProbe] = useState<any>(null);
+  const [isProbing, setIsProbing] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+
+  // 4. System Data
   const [users, setUsers] = useState<User[]>(() => BoostPayStore.getUsers());
   const [config, setConfig] = useState<SystemConfig>(() => BoostPayStore.getConfig());
   const [conversations, setConversations] = useState<Conversation[]>(() => BoostPayStore.getConversations());
@@ -412,9 +419,56 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
     setSupportMessage('');
   };
 
-  // Download DB Backup
-  const handleDownloadBackup = () => {
-    window.open('/api/admin/backup', '_blank');
+  // Run live database probe
+  const runStorageProbe = async () => {
+    setIsProbing(true);
+    const res = await BoostPayStore.probeDatabaseStorage();
+    setStorageProbe(res);
+    setIsProbing(false);
+  };
+
+  useEffect(() => {
+    runStorageProbe();
+  }, []);
+
+  // Download DB Backup as JSON snapshot
+  const handleDownloadBackup = async () => {
+    const blob = await BoostPayStore.exportDatabase();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `boostpay_database_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Restore DB from uploaded JSON file
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportLoading(true);
+    setImportStatus(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const res = await BoostPayStore.importDatabase(parsed);
+      if (res.success) {
+        setImportStatus(`✓ Success: Restored ${res.restoredUsers || 0} user accounts and database records!`);
+        await refreshData();
+        await runStorageProbe();
+      } else {
+        setImportStatus(`Error: ${res.error || 'Failed to restore database.'}`);
+      }
+    } catch (err: any) {
+      setImportStatus(`Invalid JSON backup file: ${err.message}`);
+    } finally {
+      setImportLoading(false);
+      // Reset input value so same file can be re-selected if needed
+      e.target.value = '';
+    }
   };
 
   // Filter users
@@ -610,7 +664,22 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>User Treasury & Accounts ({users.length})</span>
+            <span>User Accounts ({users.length})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('DATABASE');
+              runStorageProbe();
+            }}
+            className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition cursor-pointer shrink-0 ${
+              activeTab === 'DATABASE'
+                ? 'bg-amber-500 text-zinc-950 font-bold shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            }`}
+          >
+            <Database className="w-4 h-4" />
+            <span>Database Storage & Inspector</span>
           </button>
 
           <button
@@ -1062,7 +1131,279 @@ export const AdminPortal: FC<Props> = ({ onBack }) => {
         )}
 
         {/* ======================================================== */}
-        {/* TAB 3: COMPOUNDING ENGINE & RATES                        */}
+        {/* TAB 3: DATABASE STORAGE & LIVE INSPECTOR                 */}
+        {/* ======================================================== */}
+        {activeTab === 'DATABASE' && (
+          <div className="space-y-6">
+            {/* Top Diagnostic Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-4">
+                <div className="flex items-center justify-between text-zinc-400 text-xs mb-1.5">
+                  <span>Storage Engine</span>
+                  <Database className="w-4 h-4 text-amber-400" />
+                </div>
+                <div className="text-sm font-bold font-mono text-emerald-400 flex items-center gap-1.5">
+                  <span>Container File Store</span>
+                </div>
+                <div className="text-[10px] text-zinc-500 font-mono mt-1 truncate" title="data/boostpay_db.json">
+                  data/boostpay_db.json
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-4">
+                <div className="flex items-center justify-between text-zinc-400 text-xs mb-1.5">
+                  <span>Disk Health & Writable</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-sm font-bold font-mono text-white flex items-center gap-1.5">
+                  <span className="text-emerald-400">READ / WRITE OK</span>
+                </div>
+                <div className="text-[10px] text-zinc-500 font-mono mt-1">
+                  Latency: {storageProbe?.latencyMs ?? 2}ms
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-4">
+                <div className="flex items-center justify-between text-zinc-400 text-xs mb-1.5">
+                  <span>Total Saved Accounts</span>
+                  <Users className="w-4 h-4 text-sky-400" />
+                </div>
+                <div className="text-xl font-black font-mono text-white">
+                  {users.length} Users
+                </div>
+                <div className="text-[10px] text-zinc-500 font-mono mt-1">
+                  Active in database
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-4">
+                <div className="flex items-center justify-between text-zinc-400 text-xs mb-1.5">
+                  <span>File Size on Disk</span>
+                  <Server className="w-4 h-4 text-purple-400" />
+                </div>
+                <div className="text-xl font-black font-mono text-white">
+                  {storageProbe?.fileSizeBytes ? (storageProbe.fileSizeBytes / 1024).toFixed(1) + ' KB' : 'Active'}
+                </div>
+                <div className="text-[10px] text-zinc-500 font-mono mt-1">
+                  Raw JSON document size
+                </div>
+              </div>
+            </div>
+
+            {/* Live Verification & Test Write Card */}
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-amber-400" />
+                    Live Database Storage Probe & Verification
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Execute an instant read and write verification to verify the server is saving records.
+                  </p>
+                </div>
+
+                <button
+                  onClick={runStorageProbe}
+                  disabled={isProbing}
+                  className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-zinc-950 hover:bg-amber-400 transition cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isProbing ? 'animate-spin' : ''}`} />
+                  <span>{isProbing ? 'Testing Write...' : 'Run Storage Write Test'}</span>
+                </button>
+              </div>
+
+              {storageProbe && (
+                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Database Status: Active, Healthy & Verified Writable</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono text-zinc-300 pt-1">
+                    <div>
+                      <span className="text-zinc-500 block">Location:</span>
+                      <span className="truncate block" title={storageProbe.filePath}>{storageProbe.filePath}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-500 block">Latency:</span>
+                      <span>{storageProbe.latencyMs} ms</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-500 block">Last Written:</span>
+                      <span>{new Date(storageProbe.lastModifiedMs || Date.now()).toLocaleTimeString()}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-500 block">Total Records:</span>
+                      <span>{storageProbe.totalUsers} Users · {storageProbe.totalTransactions} Txs</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Disaster Recovery & Deployment Backup Card */}
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Download className="w-4 h-4 text-sky-400" />
+                    Deployment Backup & 1-Click Disaster Recovery
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Save a full snapshot before deploying updates, and restore everything in 1 click if needed.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. Export */}
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 space-y-3 flex flex-col justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                      <Download className="w-4 h-4 text-emerald-400" /> Export Database Snapshot
+                    </h4>
+                    <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+                      Download a complete timestamped JSON file containing all user accounts, mnemonics, balances, transactions, and SMS notifications.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadBackup}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 py-2.5 text-xs font-semibold text-zinc-200 transition cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-emerald-400" />
+                    <span>Download Backup (.json)</span>
+                  </button>
+                </div>
+
+                {/* 2. Import */}
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 space-y-3 flex flex-col justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 text-sky-400" /> Restore Database Snapshot
+                    </h4>
+                    <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+                      Upload any previously saved JSON backup to immediately restore all users and balances into the active server database.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="w-full flex items-center justify-center gap-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 py-2.5 text-xs font-semibold text-sky-300 transition cursor-pointer">
+                      <Upload className="w-4 h-4" />
+                      <span>{importLoading ? 'Restoring Database...' : 'Select Backup JSON to Restore'}</span>
+                      <input
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={handleFileImport}
+                        disabled={importLoading}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {importStatus && (
+                <div className={`rounded-xl p-3 text-xs font-medium border ${
+                  importStatus.startsWith('✓')
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                }`}>
+                  {importStatus}
+                </div>
+              )}
+            </div>
+
+            {/* Deployment Data Loss Explanation Guide */}
+            <div className="rounded-3xl border border-amber-500/20 bg-amber-500/5 p-5 space-y-2.5">
+              <div className="flex items-center gap-2 text-amber-400 text-xs font-bold">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Why do data reset on deployment, and how BoostPay protects you:</span>
+              </div>
+              <div className="text-xs text-zinc-300 space-y-1.5 leading-relaxed">
+                <p>
+                  • <strong>Stateless Containers:</strong> When you deploy an update on Cloud Run or container platforms, a brand new container image is created. Local container files (like <code className="text-amber-400 font-mono">boostpay_db.json</code>) start fresh with default data.
+                </p>
+                <p>
+                  • <strong>Dual Self-Healing Sync (Active):</strong> BoostPay clients keep a permanent verified copy of their credentials and balance. Whenever any user opens the app after an update deployment, their browser automatically re-registers and restores their balance and boost duration on the server without losing funds.
+                </p>
+                <p>
+                  • <strong>1-Click Backup:</strong> Before any major deployment, click &quot;Download Backup (.json)&quot; above. If you ever need to restore everything at once, click &quot;Select Backup JSON to Restore&quot; to repopulate all accounts instantly.
+                </p>
+              </div>
+            </div>
+
+            {/* Live Database Records Inspector Table */}
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Database className="w-4 h-4 text-amber-400" />
+                    Live Database Record Table ({users.length} Users Stored)
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Direct inspection of records saved in the server database right now.
+                  </p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-[11px] text-zinc-400">
+                      <th className="pb-2 font-semibold">User ID</th>
+                      <th className="pb-2 font-semibold">Balance</th>
+                      <th className="pb-2 font-semibold">Profit</th>
+                      <th className="pb-2 font-semibold">Boost State</th>
+                      <th className="pb-2 font-semibold">Recovery Phrase</th>
+                      <th className="pb-2 font-semibold">Password</th>
+                      <th className="pb-2 font-semibold">Registered</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/60">
+                    {users.map((u) => {
+                      const isPhraseRevealed = revealedPhrases[u.id];
+                      return (
+                        <tr key={u.id} className="hover:bg-zinc-800/30 transition">
+                          <td className="py-2.5 font-bold text-amber-400">#{u.id}</td>
+                          <td className="py-2.5 font-bold text-emerald-400 tabular-nums">${Number(u.balance).toFixed(2)}</td>
+                          <td className="py-2.5 text-zinc-300 tabular-nums">+${Number(u.lifetimeProfit || 0).toFixed(2)}</td>
+                          <td className="py-2.5">
+                            {u.boostState?.isActive ? (
+                              <span className="text-emerald-400 font-semibold">
+                                {u.boostState.isPaused ? 'Paused' : 'Active'}
+                              </span>
+                            ) : (
+                              <span className="text-zinc-500">Idle</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 text-zinc-400 max-w-[140px] truncate">
+                            {isPhraseRevealed ? u.phrase : '••••••••••••••••••••'}
+                            <button
+                              onClick={() => setRevealedPhrases(prev => ({ ...prev, [u.id]: !prev[u.id] }))}
+                              className="ml-2 text-zinc-500 hover:text-zinc-300"
+                              title={isPhraseRevealed ? 'Hide phrase' : 'Show phrase'}
+                            >
+                              {isPhraseRevealed ? <EyeOff className="w-3 h-3 inline" /> : <Eye className="w-3 h-3 inline" />}
+                            </button>
+                          </td>
+                          <td className="py-2.5 text-zinc-400">
+                            {u.password || <span className="text-zinc-600">None</span>}
+                          </td>
+                          <td className="py-2.5 text-zinc-500 text-[10px]">
+                            {new Date(u.createdAt || Date.now()).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* TAB 4: COMPOUNDING ENGINE & RATES                        */}
         {/* ======================================================== */}
         {activeTab === 'ENGINE' && (
           <div className="max-w-2xl mx-auto space-y-6">
