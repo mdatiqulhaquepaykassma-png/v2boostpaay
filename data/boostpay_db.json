@@ -1,0 +1,131 @@
+{
+  "users": [
+    {
+      "id": "849201",
+      "balance": 235,
+      "lifetimeProfit": 14.5,
+      "phrase": "alpha beacon crypto dynamic ember falcon galaxy harbor impact jupiter kinetic legacy",
+      "password": "user123",
+      "createdAt": 1792155000876,
+      "boostState": {
+        "isActive": false,
+        "isPaused": false,
+        "startedAt": 0,
+        "pausedAt": 0,
+        "elapsedMs": 0,
+        "targetDurationMs": 86400000,
+        "startingBalance": 250,
+        "accumulatedYield": 0
+      }
+    },
+    {
+      "id": "223344",
+      "balance": 15,
+      "lifetimeProfit": 0,
+      "phrase": "matrix nebula orbit plasma quantum ripple stellar titan uranus vertex zenith vector",
+      "password": "pass",
+      "createdAt": 1792242417801,
+      "boostState": {
+        "isActive": false,
+        "isPaused": false,
+        "startedAt": 0,
+        "pausedAt": 0,
+        "elapsedMs": 0,
+        "targetDurationMs": 60000,
+        "startingBalance": 0,
+        "accumulatedYield": 0
+      }
+    }
+  ],
+  "transactions": [
+    {
+      "id": "TX-96666895",
+      "userId": "849201",
+      "type": "TRANSFER_SENT",
+      "amount": 15,
+      "recipientId": "223344",
+      "timestamp": 1792242417821,
+      "notes": "P2P transfer sent to #223344"
+    },
+    {
+      "id": "TX-69151445",
+      "userId": "223344",
+      "type": "TRANSFER_RECEIVED",
+      "amount": 15,
+      "senderId": "849201",
+      "timestamp": 1792242417821,
+      "notes": "P2P transfer received from #849201"
+    },
+    {
+      "id": "TX-99014120",
+      "userId": "849201",
+      "type": "REWARD",
+      "amount": 14.5,
+      "timestamp": 1792237800877,
+      "notes": "Compounding reward credited"
+    }
+  ],
+  "conversations": [],
+  "messages": [],
+  "config": {
+    "hourlyRatePercent": 1,
+    "minBoostMs": 60000,
+    "maxBoostMs": 86400000,
+    "dokploy": {
+      "host": "boostpay-eoqehk",
+      "port": 5432,
+      "database": "boostpaydb",
+      "user": "boostpaydbuser",
+      "externalIp": "72.60.42.18",
+      "dockerHostname": "boostpay-eoqehk",
+      "isConnected": true,
+      "lastPingMs": 42
+    }
+  },
+  "notifications": [
+    {
+      "id": "NOTIF-41113809",
+      "userId": "849201",
+      "type": "TRANSFER_SENT",
+      "title": "BOOSTPAY-ALERTS",
+      "message": "DEBIT ALERT: $15.00 was transferred to Peer #223344. Remaining Balance: $235.00. Ref: TX-96666895",
+      "amount": 15,
+      "referenceId": "TX-96666895",
+      "timestamp": 1792242417821,
+      "isRead": false,
+      "metadata": {
+        "recipientId": "223344",
+        "balanceAfter": 235
+      }
+    },
+    {
+      "id": "NOTIF-74038222",
+      "userId": "223344",
+      "type": "TRANSFER_RECEIVED",
+      "title": "BOOSTPAY-ALERTS",
+      "message": "CREDIT ALERT: $15.00 has been credited to your wallet from Peer #849201. Available Balance: $15.00. Ref: TX-69151445",
+      "amount": 15,
+      "referenceId": "TX-69151445",
+      "timestamp": 1792242417821,
+      "isRead": false,
+      "metadata": {
+        "senderId": "849201",
+        "balanceAfter": 15
+      }
+    },
+    {
+      "id": "NOTIF-99014120",
+      "userId": "849201",
+      "type": "YIELD_REWARD",
+      "title": "BOOSTPAY-ALERTS",
+      "message": "YIELD ALERT: Compounding reward credited. $14.50 profit credited to your wallet balance. Ref: TX-99014120",
+      "amount": 14.5,
+      "referenceId": "TX-99014120",
+      "timestamp": 1792238811452,
+      "isRead": true,
+      "metadata": {
+        "balanceAfter": 250
+      }
+    }
+  ]
+}

@@ -52,6 +52,22 @@ const INITIAL_DB = {
   ],
   conversations: [],
   messages: [],
+  notifications: [
+    {
+      id: "NOTIF-99014120",
+      userId: "849201",
+      type: "YIELD_REWARD",
+      title: "BOOSTPAY-ALERTS",
+      message: "YIELD ALERT: Compounding reward credited. $14.50 profit credited to your wallet balance. Ref: TX-99014120",
+      amount: 14.50,
+      referenceId: "TX-99014120",
+      timestamp: Date.now() - 3600000,
+      isRead: true,
+      metadata: {
+        balanceAfter: 250.00
+      }
+    }
+  ],
   config: {
     hourlyRatePercent: 1.0,
     minBoostMs: 60000, // 1 minute minimum
@@ -81,6 +97,7 @@ function readDb() {
     if (!parsed.transactions) parsed.transactions = INITIAL_DB.transactions;
     if (!parsed.conversations) parsed.conversations = [];
     if (!parsed.messages) parsed.messages = [];
+    if (!parsed.notifications) parsed.notifications = INITIAL_DB.notifications || [];
     if (!parsed.config) parsed.config = INITIAL_DB.config;
     return parsed;
   } catch (err) {
@@ -168,6 +185,24 @@ setInterval(() => {
           };
           db.transactions.unshift(rewardTx);
 
+          // Also generate SMS-style inbox notification
+          const yieldNotif = {
+            id: 'NOTIF-' + Math.floor(10000000 + Math.random() * 90000000),
+            userId: user.id,
+            type: 'YIELD_REWARD',
+            title: 'BOOSTPAY-ALERTS',
+            message: `YIELD ALERT: Compounding cycle completed. $${finalYield.toFixed(2)} in yield profit credited to your wallet. Available Balance: $${user.balance.toFixed(2)}. Ref: ${rewardTx.id}`,
+            amount: finalYield,
+            referenceId: rewardTx.id,
+            timestamp: now,
+            isRead: false,
+            metadata: {
+              balanceAfter: user.balance
+            }
+          };
+          if (!db.notifications) db.notifications = [];
+          db.notifications.unshift(yieldNotif);
+
           // Calculate new duration based on latest balance
           const nextDuration = calculateDynamicDuration(user.balance, db.users, config);
 
@@ -233,8 +268,9 @@ async function startServer() {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    const userTxs = db.transactions.filter((t: any) => t.userId === user.id);
-    res.json({ user, transactions: userTxs });
+    const userTxs = (db.transactions || []).filter((t: any) => t.userId === user.id);
+    const userNotifs = (db.notifications || []).filter((n: any) => n.userId === user.id);
+    res.json({ user, transactions: userTxs, notifications: userNotifs });
   });
 
   // 5. User registration endpoint
@@ -405,6 +441,10 @@ async function startServer() {
         ? incoming.messages
         : current.messages;
 
+      const notificationsToSave = Array.isArray(incoming.notifications)
+        ? incoming.notifications
+        : (current.notifications || []);
+
       const configToSave = incoming.config || current.config;
 
       const updatedDb = {
@@ -412,6 +452,7 @@ async function startServer() {
         transactions: transactionsToSave,
         conversations: conversationsToSave,
         messages: messagesToSave,
+        notifications: notificationsToSave,
         config: configToSave
       };
 
@@ -422,7 +463,7 @@ async function startServer() {
     }
   });
 
-  // 7b. Server-Authoritative Instant P2P Transfer
+  // 7b. Server-Authoritative Instant P2P Transfer with SMS Notifications
   app.post('/api/transfer', (req, res) => {
     try {
       const { senderId, recipientId, amount } = req.body;
@@ -476,6 +517,43 @@ async function startServer() {
       db.transactions.unshift(recvTx);
       db.transactions.unshift(sentTx);
 
+      // Construct official bank-style SMS alert notifications for both parties
+      const recvNotif = {
+        id: 'NOTIF-' + Math.floor(10000000 + Math.random() * 90000000),
+        userId: recipient.id,
+        type: 'TRANSFER_RECEIVED',
+        title: 'BOOSTPAY-ALERTS',
+        message: `CREDIT ALERT: $${numAmount.toFixed(2)} has been credited to your wallet from Peer #${sender.id}. Available Balance: $${recipient.balance.toFixed(2)}. Ref: ${recvTx.id}`,
+        amount: numAmount,
+        referenceId: recvTx.id,
+        timestamp: Date.now(),
+        isRead: false,
+        metadata: {
+          senderId: sender.id,
+          balanceAfter: recipient.balance
+        }
+      };
+
+      const sentNotif = {
+        id: 'NOTIF-' + Math.floor(10000000 + Math.random() * 90000000),
+        userId: sender.id,
+        type: 'TRANSFER_SENT',
+        title: 'BOOSTPAY-ALERTS',
+        message: `DEBIT ALERT: $${numAmount.toFixed(2)} was transferred to Peer #${recipient.id}. Remaining Balance: $${sender.balance.toFixed(2)}. Ref: ${sentTx.id}`,
+        amount: numAmount,
+        referenceId: sentTx.id,
+        timestamp: Date.now(),
+        isRead: false,
+        metadata: {
+          recipientId: recipient.id,
+          balanceAfter: sender.balance
+        }
+      };
+
+      if (!db.notifications) db.notifications = [];
+      db.notifications.unshift(recvNotif);
+      db.notifications.unshift(sentNotif);
+
       // Recalculate boost durations
       if (sender.boostState) {
         sender.boostState.targetDurationMs = calculateDynamicDuration(sender.balance, db.users, db.config);
@@ -485,7 +563,62 @@ async function startServer() {
       }
 
       writeDb(db);
-      res.json({ success: true, sender, recipient, sentTx, recvTx });
+      res.json({ success: true, sender, recipient, sentTx, recvTx, recvNotif, sentNotif });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7c. Notification System Endpoints
+  app.get('/api/notifications/:userId', (req, res) => {
+    const db = readDb();
+    const userNotifs = (db.notifications || [])
+      .filter((n: any) => n.userId === req.params.userId)
+      .sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
+    res.json(userNotifs);
+  });
+
+  app.post('/api/notifications/mark-read', (req, res) => {
+    try {
+      const { userId, notificationId } = req.body;
+      const db = readDb();
+      if (!db.notifications) db.notifications = [];
+
+      let updatedCount = 0;
+      for (const notif of db.notifications) {
+        if (notif.userId === userId) {
+          if (!notificationId || notificationId === 'ALL' || notif.id === notificationId) {
+            if (!notif.isRead) {
+              notif.isRead = true;
+              updatedCount++;
+            }
+          }
+        }
+      }
+
+      if (updatedCount > 0) {
+        writeDb(db);
+      }
+      res.json({ success: true, updatedCount });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/notifications/delete', (req, res) => {
+    try {
+      const { userId, notificationId } = req.body;
+      const db = readDb();
+      if (!db.notifications) db.notifications = [];
+
+      if (notificationId === 'ALL') {
+        db.notifications = db.notifications.filter((n: any) => n.userId !== userId);
+      } else {
+        db.notifications = db.notifications.filter((n: any) => !(n.userId === userId && n.id === notificationId));
+      }
+
+      writeDb(db);
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -560,25 +693,58 @@ async function startServer() {
         return res.status(400).json({ error: 'Invalid amount' });
       }
 
+      let adminTxId = 'TX-' + Math.floor(10000000 + Math.random() * 90000000);
       if (type === 'CREDIT') {
         user.balance = (Number(user.balance) || 0) + numAmount;
         db.transactions.unshift({
-          id: 'TX-' + Math.floor(10000000 + Math.random() * 90000000),
+          id: adminTxId,
           userId: user.id,
           type: 'ADMIN_CREDIT',
           amount: numAmount,
           timestamp: Date.now(),
           notes: notes || 'Admin Treasury Credit'
         });
+        if (!db.notifications) db.notifications = [];
+        db.notifications.unshift({
+          id: 'NOTIF-' + Math.floor(10000000 + Math.random() * 90000000),
+          userId: user.id,
+          type: 'SYSTEM_ALERT',
+          title: 'BOOSTPAY-TREASURY',
+          message: `TREASURY CREDIT: $${numAmount.toFixed(2)} deposited into your account by Admin Treasury. Balance: $${user.balance.toFixed(2)}. Ref: ${adminTxId}`,
+          amount: numAmount,
+          referenceId: adminTxId,
+          timestamp: Date.now(),
+          isRead: false,
+          metadata: {
+            balanceAfter: user.balance,
+            notes: notes || 'Admin Treasury Credit'
+          }
+        });
       } else if (type === 'DEBIT') {
         user.balance = Math.max(0, (Number(user.balance) || 0) - numAmount);
         db.transactions.unshift({
-          id: 'TX-' + Math.floor(10000000 + Math.random() * 90000000),
+          id: adminTxId,
           userId: user.id,
           type: 'ADMIN_DEBIT',
           amount: numAmount,
           timestamp: Date.now(),
           notes: notes || 'Admin Treasury Debit'
+        });
+        if (!db.notifications) db.notifications = [];
+        db.notifications.unshift({
+          id: 'NOTIF-' + Math.floor(10000000 + Math.random() * 90000000),
+          userId: user.id,
+          type: 'SYSTEM_ALERT',
+          title: 'BOOSTPAY-TREASURY',
+          message: `TREASURY DEBIT: $${numAmount.toFixed(2)} debited from your account by Admin Treasury. Balance: $${user.balance.toFixed(2)}. Ref: ${adminTxId}`,
+          amount: numAmount,
+          referenceId: adminTxId,
+          timestamp: Date.now(),
+          isRead: false,
+          metadata: {
+            balanceAfter: user.balance,
+            notes: notes || 'Admin Treasury Debit'
+          }
         });
       }
 

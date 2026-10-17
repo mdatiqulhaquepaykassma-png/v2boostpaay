@@ -1,4 +1,4 @@
-import { User, Transaction, Conversation, Message, SystemConfig } from '../types';
+import { User, Transaction, Conversation, Message, SystemConfig, InboxNotification } from '../types';
 import { copyToClipboard as clipboardHelper } from '../utils/clipboard';
 
 const STORAGE_USERS = 'boostpay_users_v4';
@@ -8,7 +8,19 @@ const STORAGE_ADMIN_SESSION = 'boostpay_admin_session_v4';
 const STORAGE_TRANSACTIONS = 'boostpay_transactions_v4';
 const STORAGE_CONVERSATIONS = 'boostpay_conversations_v4';
 const STORAGE_MESSAGES = 'boostpay_messages_v4';
+const STORAGE_NOTIFICATIONS = 'boostpay_notifications_v4';
 const STORAGE_CONFIG = 'boostpay_config_v4';
+
+export interface ToastData {
+  id: string;
+  type: 'TRANSFER_RECEIVED' | 'TRANSFER_SENT' | 'YIELD_REWARD' | 'SYSTEM_ALERT';
+  title: string;
+  amount?: number;
+  senderId?: string;
+  referenceId?: string;
+  timestamp: number;
+  message: string;
+}
 
 // Legacy keys for seamless migration and zero-logout upgrade
 const LEGACY_USER_KEYS = [
@@ -80,6 +92,9 @@ export function getDefaultConfig(): SystemConfig {
 
 export class BoostPayStore {
   private static isSyncing = false;
+  private static toastListeners: ((toast: ToastData) => void)[] = [];
+  private static seenNotificationIds = new Set<string>();
+  private static hasSeededInitialHistory = false;
 
   /**
    * Initialize and smart-merge with server database
@@ -156,6 +171,30 @@ export class BoostPayStore {
           localStorage.setItem(STORAGE_MESSAGES, JSON.stringify(data.messages));
         }
 
+        if (data.notifications && Array.isArray(data.notifications)) {
+          const localNotifs = this.getNotifications();
+          const mergedNotifs = [...data.notifications];
+          for (const ln of localNotifs) {
+            if (!mergedNotifs.some(n => n.id === ln.id)) {
+              mergedNotifs.push(ln);
+            }
+          }
+          localStorage.setItem(STORAGE_NOTIFICATIONS, JSON.stringify(mergedNotifs));
+
+          // Seed seen notifications on initial load
+          if (!this.hasSeededInitialHistory) {
+            for (const n of mergedNotifs) {
+              this.seenNotificationIds.add(n.id);
+            }
+            if (data.transactions) {
+              for (const t of data.transactions) {
+                this.seenNotificationIds.add(t.id);
+              }
+            }
+            this.hasSeededInitialHistory = true;
+          }
+        }
+
         if (data.config) {
           localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config));
         }
@@ -194,6 +233,7 @@ export class BoostPayStore {
           transactions: this.getTransactions(),
           conversations: this.getConversations(),
           messages: this.getMessages(),
+          notifications: this.getNotifications(),
           config: this.getConfig()
         })
       });
@@ -374,15 +414,78 @@ export class BoostPayStore {
             this.setCurrentUser(freshUser);
           }
 
-          // If transactions returned, update
+          // If notifications returned, update and check for real-time alerts
+          if (data.notifications && Array.isArray(data.notifications)) {
+            const allNotifs = this.getNotifications();
+            let hasNewNotifs = false;
+
+            for (const n of data.notifications) {
+              if (!allNotifs.some(existing => existing.id === n.id)) {
+                allNotifs.unshift(n);
+                hasNewNotifs = true;
+              }
+
+              // Real-time transfer toast alert check!
+              if (this.hasSeededInitialHistory && !this.seenNotificationIds.has(n.id)) {
+                this.seenNotificationIds.add(n.id);
+                if (n.type === 'TRANSFER_RECEIVED') {
+                  this.triggerToast({
+                    id: n.id,
+                    type: 'TRANSFER_RECEIVED',
+                    title: 'Funds Received',
+                    amount: n.amount,
+                    senderId: n.metadata?.senderId,
+                    referenceId: n.referenceId,
+                    timestamp: n.timestamp,
+                    message: n.message
+                  });
+                }
+              } else if (!this.hasSeededInitialHistory) {
+                this.seenNotificationIds.add(n.id);
+              }
+            }
+
+            if (hasNewNotifs) {
+              localStorage.setItem(STORAGE_NOTIFICATIONS, JSON.stringify(allNotifs));
+            }
+          }
+
+          // If transactions returned, update and check for newly received transfers
           if (data.transactions && Array.isArray(data.transactions)) {
             const allTxs = this.getTransactions();
+            let hasNewTxs = false;
+
             for (const t of data.transactions) {
               if (!allTxs.some(existing => existing.id === t.id)) {
                 allTxs.unshift(t);
+                hasNewTxs = true;
+
+                // If this is an incoming transfer and we already seeded history, trigger toast!
+                if (this.hasSeededInitialHistory && t.type === 'TRANSFER_RECEIVED' && !this.seenNotificationIds.has(t.id)) {
+                  this.seenNotificationIds.add(t.id);
+                  this.triggerToast({
+                    id: t.id,
+                    type: 'TRANSFER_RECEIVED',
+                    title: 'Funds Received',
+                    amount: t.amount,
+                    senderId: t.senderId,
+                    referenceId: t.id,
+                    timestamp: t.timestamp,
+                    message: `Received $${Number(t.amount).toFixed(2)} from #${t.senderId || 'Peer'}`
+                  });
+                }
+              } else {
+                this.seenNotificationIds.add(t.id);
               }
             }
-            localStorage.setItem(STORAGE_TRANSACTIONS, JSON.stringify(allTxs));
+
+            if (hasNewTxs) {
+              localStorage.setItem(STORAGE_TRANSACTIONS, JSON.stringify(allTxs));
+            }
+          }
+
+          if (!this.hasSeededInitialHistory) {
+            this.hasSeededInitialHistory = true;
           }
 
           return freshUser;
@@ -713,5 +816,97 @@ export class BoostPayStore {
       transactions.unshift(tx);
       this.saveTransactions(transactions);
     }
+  }
+
+  // --- Notification & Real-Time Alert Engine ---
+
+  static onToastNotification(listener: (toast: ToastData) => void): () => void {
+    this.toastListeners.push(listener);
+    return () => {
+      this.toastListeners = this.toastListeners.filter(l => l !== listener);
+    };
+  }
+
+  static triggerToast(toast: ToastData): void {
+    for (const listener of this.toastListeners) {
+      try {
+        listener(toast);
+      } catch (e) {
+        console.warn('Toast listener execution note:', e);
+      }
+    }
+  }
+
+  static getNotifications(userId?: string): InboxNotification[] {
+    const raw = localStorage.getItem(STORAGE_NOTIFICATIONS);
+    if (!raw) return [];
+    try {
+      const list: InboxNotification[] = JSON.parse(raw);
+      if (!Array.isArray(list)) return [];
+      if (userId) {
+        return list
+          .filter(n => n.userId === userId)
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      }
+      return list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    } catch {
+      return [];
+    }
+  }
+
+  static saveNotifications(notifications: InboxNotification[]): void {
+    localStorage.setItem(STORAGE_NOTIFICATIONS, JSON.stringify(notifications));
+    this.pushToServer();
+  }
+
+  static addNotification(notif: InboxNotification): void {
+    const all = this.getNotifications();
+    if (!all.some(n => n.id === notif.id)) {
+      all.unshift(notif);
+      this.saveNotifications(all);
+    }
+  }
+
+  static getUnreadNotificationCount(userId: string): number {
+    const userNotifs = this.getNotifications(userId);
+    return userNotifs.filter(n => !n.isRead).length;
+  }
+
+  static async markNotificationAsRead(userId: string, notifId?: string): Promise<void> {
+    const all = this.getNotifications();
+    for (const n of all) {
+      if (n.userId === userId) {
+        if (!notifId || notifId === 'ALL' || n.id === notifId) {
+          n.isRead = true;
+        }
+      }
+    }
+    this.saveNotifications(all);
+
+    try {
+      await fetch('/api/notifications/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, notificationId: notifId || 'ALL' })
+      });
+    } catch {}
+  }
+
+  static async deleteNotification(userId: string, notifId: string): Promise<void> {
+    let all = this.getNotifications();
+    if (notifId === 'ALL') {
+      all = all.filter(n => n.userId !== userId);
+    } else {
+      all = all.filter(n => !(n.userId === userId && n.id === notifId));
+    }
+    this.saveNotifications(all);
+
+    try {
+      await fetch('/api/notifications/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, notificationId: notifId })
+      });
+    } catch {}
   }
 }

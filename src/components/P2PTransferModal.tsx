@@ -98,6 +98,8 @@ export const P2PTransferModal: FC<Props> = ({
 
         if (data.sentTx) BoostPayStore.addTransactionRecord(data.sentTx);
         if (data.recvTx) BoostPayStore.addTransactionRecord(data.recvTx);
+        if (data.sentNotif) BoostPayStore.addNotification(data.sentNotif);
+        if (data.recvNotif) BoostPayStore.addNotification(data.recvNotif);
 
         const updatedSender: User = {
           ...currentUser,
@@ -147,7 +149,7 @@ export const P2PTransferModal: FC<Props> = ({
     sender.balance -= numAmount;
     recipient.balance += numAmount;
 
-    BoostPayStore.addTransaction({
+    const sentTx = BoostPayStore.addTransaction({
       userId: sender.id,
       type: 'TRANSFER_SENT',
       amount: numAmount,
@@ -155,12 +157,45 @@ export const P2PTransferModal: FC<Props> = ({
       notes: `P2P transfer sent to #${recipient.id}`
     });
 
-    BoostPayStore.addTransaction({
+    const recvTx = BoostPayStore.addTransaction({
       userId: recipient.id,
       type: 'TRANSFER_RECEIVED',
       amount: numAmount,
       senderId: sender.id,
       notes: `P2P transfer received from #${sender.id}`
+    });
+
+    // Create notifications for local fallback
+    BoostPayStore.addNotification({
+      id: 'NOTIF-' + Math.floor(10000000 + Math.random() * 90000000),
+      userId: sender.id,
+      type: 'TRANSFER_SENT',
+      title: 'BOOSTPAY-ALERTS',
+      message: `DEBIT ALERT: $${numAmount.toFixed(2)} was transferred to Peer #${recipient.id}. Remaining Balance: $${sender.balance.toFixed(2)}. Ref: ${sentTx.id}`,
+      amount: numAmount,
+      referenceId: sentTx.id,
+      timestamp: Date.now(),
+      isRead: false,
+      metadata: {
+        recipientId: recipient.id,
+        balanceAfter: sender.balance
+      }
+    });
+
+    BoostPayStore.addNotification({
+      id: 'NOTIF-' + Math.floor(10000000 + Math.random() * 90000000),
+      userId: recipient.id,
+      type: 'TRANSFER_RECEIVED',
+      title: 'BOOSTPAY-ALERTS',
+      message: `CREDIT ALERT: $${numAmount.toFixed(2)} has been credited to your wallet from Peer #${sender.id}. Available Balance: $${recipient.balance.toFixed(2)}. Ref: ${recvTx.id}`,
+      amount: numAmount,
+      referenceId: recvTx.id,
+      timestamp: Date.now(),
+      isRead: false,
+      metadata: {
+        senderId: sender.id,
+        balanceAfter: recipient.balance
+      }
     });
 
     sender.boostState.targetDurationMs = BoostPayStore.calculateDynamicDuration(sender.balance, allUsers);

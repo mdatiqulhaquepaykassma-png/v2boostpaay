@@ -50,6 +50,26 @@ export interface Conversation {
   hasUnread?: boolean;
 }
 
+export type NotificationType = 'TRANSFER_RECEIVED' | 'TRANSFER_SENT' | 'YIELD_REWARD' | 'SYSTEM_ALERT';
+
+export interface InboxNotification {
+  id: string; // e.g. "NOTIF-748921"
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  amount?: number;
+  referenceId?: string;
+  timestamp: number;
+  isRead: boolean;
+  metadata?: {
+    senderId?: string;
+    recipientId?: string;
+    balanceAfter?: number;
+    notes?: string;
+  };
+}
+
 export interface DokployConfig {
   host: string;
   port: number;
@@ -67,3 +87,4 @@ export interface SystemConfig {
   maxBoostMs: number; // 86,400,000 ms (24 hours)
   dokploy: DokployConfig;
 }
+

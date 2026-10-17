@@ -4,8 +4,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Wallet, Trophy, MessageSquare, Download, ExternalLink } from 'lucide-react';
-import { BoostPayStore } from './services/store';
+import { Wallet, Trophy, MessageSquare, Download, ExternalLink, Inbox } from 'lucide-react';
+import { BoostPayStore, ToastData } from './services/store';
 import { User, SystemConfig } from './types';
 import { Navbar } from './components/Navbar';
 import { AuthGate } from './components/AuthGate';
@@ -13,6 +13,8 @@ import { WalletView } from './components/WalletView';
 import { LeaderboardView } from './components/LeaderboardView';
 import { AdminPortal } from './components/AdminPortal';
 import { MessengerView } from './components/MessengerView';
+import { InboxView } from './components/InboxView';
+import { FloatingToastContainer } from './components/FloatingToast';
 import { P2PTransferModal } from './components/P2PTransferModal';
 import { UpdateNotification } from './components/UpdateNotification';
 import { usePWAInstall } from './hooks/usePWAInstall';
@@ -24,8 +26,12 @@ export default function App() {
     const hash = window.location.hash.toLowerCase();
     return path === '/admin' || path.startsWith('/admin/') || hash === '#/admin' || hash === '#admin';
   });
-  const [activeTab, setActiveTab] = useState<'WALLET' | 'LEADERBOARD' | 'MESSENGER'>('WALLET');
+  const [activeTab, setActiveTab] = useState<'WALLET' | 'LEADERBOARD' | 'INBOX' | 'MESSENGER'>('WALLET');
   const [chatTargetPeerId, setChatTargetPeerId] = useState<string | null>(null);
+
+  // Real-time floating toasts state
+  const [toasts, setToasts] = useState<ToastData[]>([]);
+  const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
 
   // Modals state
   const [isSendMoneyOpen, setIsSendMoneyOpen] = useState(false);
@@ -68,6 +74,33 @@ export default function App() {
     };
   }, []);
 
+  // Listen for real-time incoming transfer toasts
+  useEffect(() => {
+    const unsubscribe = BoostPayStore.onToastNotification((newToast) => {
+      setToasts((prev) => [newToast, ...prev]);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Periodic authoritative background synchronization & unread count tracking
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const refreshState = async () => {
+      const unread = BoostPayStore.getUnreadNotificationCount(currentUser.id);
+      setUnreadNotifCount(unread);
+
+      const synced = await BoostPayStore.syncUserFromServer(currentUser.id);
+      if (synced) {
+        setCurrentUser(synced);
+      }
+    };
+
+    refreshState();
+    const interval = setInterval(refreshState, 2000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id]);
+
   const handleExitAdmin = () => {
     setIsOnAdminRoute(false);
     if (window.location.pathname.startsWith('/admin')) {
@@ -105,6 +138,16 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans antialiased">
+      {/* Real-Time Floating Toast Alerts Container */}
+      <FloatingToastContainer
+        toasts={toasts}
+        onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+        onViewInbox={() => {
+          setActiveTab('INBOX');
+          setToasts([]);
+        }}
+      />
+
       {/* 1. COMPLETELY INDEPENDENT FULL-STACK ADMIN PORTAL (/admin or #admin) */}
       {isOnAdminRoute ? (
         <AdminPortal onBack={handleExitAdmin} />
@@ -147,6 +190,10 @@ export default function App() {
               />
             )}
 
+            {activeTab === 'INBOX' && (
+              <InboxView userId={currentUser.id} />
+            )}
+
             {activeTab === 'MESSENGER' && (
               <MessengerView
                 currentUser={currentUser}
@@ -159,12 +206,12 @@ export default function App() {
           <UpdateNotification />
 
           {/* FIXED BOTTOM NAVIGATION BAR */}
-          <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md px-4 py-2">
-            <div className="max-w-md mx-auto grid grid-cols-4 items-center gap-1">
+          <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md px-3 py-1.5">
+            <div className="max-w-md mx-auto grid grid-cols-5 items-center gap-1">
               {/* 1. Wallet Tab */}
               <button
                 onClick={() => setActiveTab('WALLET')}
-                className={`flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition cursor-pointer ${
+                className={`flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition cursor-pointer min-h-[44px] ${
                   activeTab === 'WALLET' ? 'text-amber-400 font-bold' : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
@@ -175,20 +222,56 @@ export default function App() {
               {/* 2. Leaderboard Tab */}
               <button
                 onClick={() => setActiveTab('LEADERBOARD')}
-                className={`flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition cursor-pointer ${
+                className={`flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition cursor-pointer min-h-[44px] ${
                   activeTab === 'LEADERBOARD' ? 'text-amber-400 font-bold' : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
                 <Trophy className="w-5 h-5 stroke-[2.2]" />
-                <span>Leaderboard</span>
+                <span>Leaders</span>
               </button>
 
-              {/* 3. Install / Open App Action */}
-              <div className="flex flex-col items-center justify-center">
+              {/* 3. SMS Inbox Tab */}
+              <button
+                onClick={() => {
+                  setActiveTab('INBOX');
+                  // Clear unread count optimistically
+                  if (currentUser) {
+                    BoostPayStore.markNotificationAsRead(currentUser.id, 'ALL');
+                    setUnreadNotifCount(0);
+                  }
+                }}
+                className={`relative flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition cursor-pointer min-h-[44px] ${
+                  activeTab === 'INBOX' ? 'text-amber-400 font-bold' : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                <div className="relative">
+                  <Inbox className="w-5 h-5 stroke-[2.2]" />
+                  {unreadNotifCount > 0 && (
+                    <span className="absolute -top-1.5 -right-2 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-zinc-950 font-mono shadow-sm">
+                      {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                    </span>
+                  )}
+                </div>
+                <span>Inbox</span>
+              </button>
+
+              {/* 4. Messenger Tab */}
+              <button
+                onClick={() => setActiveTab('MESSENGER')}
+                className={`flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition cursor-pointer min-h-[44px] ${
+                  activeTab === 'MESSENGER' ? 'text-amber-400 font-bold' : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                <MessageSquare className="w-5 h-5 stroke-[2.2]" />
+                <span>Chat</span>
+              </button>
+
+              {/* 5. Install / Open App Action */}
+              <div className="flex flex-col items-center justify-center min-h-[44px]">
                 {isInstalled || justInstalled ? (
                   <button
                     onClick={openApp}
-                    className="flex flex-col items-center justify-center gap-1 text-[11px] text-emerald-400 font-bold hover:text-emerald-300 transition cursor-pointer"
+                    className="flex flex-col items-center justify-center gap-1 text-[11px] text-emerald-400 font-bold hover:text-emerald-300 transition cursor-pointer min-h-[44px]"
                     title="Open installed BoostPay app"
                   >
                     <ExternalLink className="w-5 h-5" />
@@ -198,7 +281,7 @@ export default function App() {
                   <button
                     onClick={install}
                     disabled={isInstallLoading}
-                    className="flex flex-col items-center justify-center gap-1 text-[11px] font-bold text-amber-400 hover:text-amber-300 active:scale-95 transition cursor-pointer"
+                    className="flex flex-col items-center justify-center gap-1 text-[11px] font-bold text-amber-400 hover:text-amber-300 active:scale-95 transition cursor-pointer min-h-[44px]"
                     title="Install BoostPay"
                   >
                     {isInstallLoading ? (
@@ -210,17 +293,6 @@ export default function App() {
                   </button>
                 )}
               </div>
-
-              {/* 4. Messenger Tab */}
-              <button
-                onClick={() => setActiveTab('MESSENGER')}
-                className={`flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition cursor-pointer ${
-                  activeTab === 'MESSENGER' ? 'text-amber-400 font-bold' : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                <MessageSquare className="w-5 h-5 stroke-[2.2]" />
-                <span>Messenger</span>
-              </button>
             </div>
           </nav>
         </div>
