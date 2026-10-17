@@ -279,6 +279,34 @@ export class BoostPayStore {
     return this.getUsers();
   }
 
+  /**
+   * Fetch conversations and messages from server real-time
+   */
+  static async syncChatState(): Promise<{ conversations: Conversation[], messages: Message[] }> {
+    try {
+      const res = await fetch('/api/db');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.conversations && Array.isArray(data.conversations)) {
+          localStorage.setItem(STORAGE_CONVERSATIONS, JSON.stringify(data.conversations));
+        }
+        if (data.messages && Array.isArray(data.messages)) {
+          localStorage.setItem(STORAGE_MESSAGES, JSON.stringify(data.messages));
+        }
+        return {
+          conversations: data.conversations || [],
+          messages: data.messages || []
+        };
+      }
+    } catch (err) {
+      console.warn('syncChatState network error:', err);
+    }
+    return {
+      conversations: this.getConversations(),
+      messages: this.getMessages()
+    };
+  }
+
   static getUsers(): User[] {
     const raw = localStorage.getItem(STORAGE_USERS) || localStorage.getItem('boostpay_users');
     if (!raw) return [];

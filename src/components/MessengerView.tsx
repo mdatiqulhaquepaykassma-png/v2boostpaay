@@ -48,15 +48,21 @@ export const MessengerView: FC<Props> = ({ currentUser, initialPeerId, targetPee
 
   // 10ms real-time chat & message synchronization
   useEffect(() => {
-    refreshConvs();
-    const interval = setInterval(refreshConvs, 10);
-    return () => clearInterval(interval);
-  }, []);
+    let active = true;
 
-  const refreshConvs = () => {
-    setConversations(BoostPayStore.getConversations());
-    setMessages(BoostPayStore.getMessages());
-  };
+    const poll = async () => {
+      while (active) {
+        const { conversations: newConvs, messages: newMsgs } = await BoostPayStore.syncChatState();
+        setConversations(newConvs);
+        setMessages(newMsgs);
+        
+        await new Promise(r => setTimeout(r, 10));
+      }
+    };
+
+    poll();
+    return () => { active = false; };
+  }, []);
 
   const userConversations = conversations.filter(c =>
     c.participants.includes(currentUser.id) || c.participants.includes('ADMIN_SUPPORT')
