@@ -259,6 +259,26 @@ export class BoostPayStore {
     }
   }
 
+  /**
+   * Fetch all users from server and update local storage
+   */
+  static async syncAllUsers(): Promise<User[]> {
+    try {
+      const res = await fetch('/api/db');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.users && Array.isArray(data.users)) {
+          localStorage.setItem(STORAGE_USERS, JSON.stringify(data.users));
+          localStorage.setItem('boostpay_users', JSON.stringify(data.users));
+          return data.users;
+        }
+      }
+    } catch (err) {
+      console.warn('syncAllUsers network error:', err);
+    }
+    return this.getUsers();
+  }
+
   static getUsers(): User[] {
     const raw = localStorage.getItem(STORAGE_USERS) || localStorage.getItem('boostpay_users');
     if (!raw) return [];

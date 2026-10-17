@@ -22,29 +22,34 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
   const [rankChanges, setRankChanges] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
-    const updateLeaderboard = () => {
-      const all = BoostPayStore.getUsers();
-      const sorted = [...all].sort((a, b) => b.balance - a.balance || b.lifetimeProfit - a.lifetimeProfit);
-      
-      const newChanges = new Map<string, number>();
-      sorted.forEach((u, newIdx) => {
-        const oldRank = prevRanksRef.current.get(u.id);
-        const newRank = newIdx + 1;
-        if (oldRank !== undefined) {
-          newChanges.set(u.id, oldRank - newRank); // positive = moved up, negative = moved down
-        } else {
-          newChanges.set(u.id, 0);
-        }
-        prevRanksRef.current.set(u.id, newRank);
-      });
+    let active = true;
 
-      setRankChanges(newChanges);
-      setUsers(sorted);
+    const poll = async () => {
+      while (active) {
+        const all = await BoostPayStore.syncAllUsers();
+        const sorted = [...all].sort((a, b) => b.balance - a.balance || b.lifetimeProfit - a.lifetimeProfit);
+        
+        const newChanges = new Map<string, number>();
+        sorted.forEach((u, newIdx) => {
+          const oldRank = prevRanksRef.current.get(u.id);
+          const newRank = newIdx + 1;
+          if (oldRank !== undefined) {
+            newChanges.set(u.id, oldRank - newRank); // positive = moved up, negative = moved down
+          } else {
+            newChanges.set(u.id, 0);
+          }
+          prevRanksRef.current.set(u.id, newRank);
+        });
+
+        setRankChanges(newChanges);
+        setUsers(sorted);
+        
+        await new Promise(r => setTimeout(r, 10));
+      }
     };
 
-    updateLeaderboard();
-    const interval = setInterval(updateLeaderboard, 10);
-    return () => clearInterval(interval);
+    poll();
+    return () => { active = false; };
   }, []);
 
   const effectiveUserId = userProp?.id || currentUserId || '';
