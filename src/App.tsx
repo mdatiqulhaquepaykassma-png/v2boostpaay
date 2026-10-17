@@ -97,7 +97,7 @@ export default function App() {
     };
 
     refreshState();
-    const interval = setInterval(refreshState, 2000);
+    const interval = setInterval(refreshState, 500);
     return () => clearInterval(interval);
   }, [currentUser?.id]);
 
