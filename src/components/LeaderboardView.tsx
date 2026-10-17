@@ -19,8 +19,13 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
-    const all = BoostPayStore.getUsers();
-    setUsers([...all].sort((a, b) => b.balance - a.balance || b.lifetimeProfit - a.lifetimeProfit));
+    const updateLeaderboard = () => {
+      const all = BoostPayStore.getUsers();
+      setUsers([...all].sort((a, b) => b.balance - a.balance || b.lifetimeProfit - a.lifetimeProfit));
+    };
+    updateLeaderboard();
+    const interval = setInterval(updateLeaderboard, 500);
+    return () => clearInterval(interval);
   }, []);
 
   const effectiveUserId = userProp?.id || currentUserId || '';
@@ -144,9 +149,9 @@ export const LeaderboardView: FC<Props> = ({ currentUser: userProp, currentUserI
             return (
               <div
                 key={u.id}
-                className={`flex items-center justify-between rounded-2xl border p-3.5 transition ${
+                className={`flex items-center justify-between rounded-2xl border p-3.5 transition-all duration-500 ease-in-out ${
                   isMe
-                    ? 'border-amber-500/40 bg-amber-500/5'
+                    ? 'border-amber-500/40 bg-amber-500/5 shadow-lg shadow-amber-500/5'
                     : 'border-zinc-800/80 bg-zinc-950/60 hover:border-zinc-700 hover:bg-zinc-950'
                 }`}
               >
